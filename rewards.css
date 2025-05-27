@@ -1,0 +1,972 @@
+/* Rewards Page Styles */
+.rewards-main {
+  flex: 1;
+  background: #f8f9fa;
+  overflow-y: auto;
+  padding: 30px 40px;
+}
+
+.rewards-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
+}
+
+.rewards-header h1 {
+  font-size: 36px;
+  font-weight: 700;
+  color: #8B7355;
+  margin: 0;
+}
+
+.user-name {
+  font-size: 16px;
+  color: #666;
+  font-weight: 500;
+}
+
+/* Rewards Grid */
+.rewards-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 25px;
+  margin-bottom: 40px;
+}
+
+.reward-card {
+  border-radius: 20px;
+  padding: 30px 25px;
+  text-align: center;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.reward-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.15);
+}
+
+/* Daily Reward Card */
+.daily-reward {
+  background: linear-gradient(135deg, #8B7355, #6d5d48);
+  color: white;
+}
+
+/* Task Reward Card */
+.task-reward {
+  background: linear-gradient(135deg, #b19176, #8B7355);
+  color: white;
+}
+
+/* Achievement Reward Card */
+.achievement-reward {
+  background: linear-gradient(135deg, #d4a574, #c4956c);
+  color: white;
+}
+
+.reward-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  justify-content: space-between;
+}
+
+.reward-content h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 20px 0;
+  line-height: 1.3;
+}
+
+/* Reward Badges */
+.reward-badge {
+  margin: 20px 0;
+  position: relative;
+}
+
+.badge-circle {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: linear-gradient(45deg, #FFD700, #FFA500);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
+  position: relative;
+  box-shadow: 0 4px 15px rgba(255, 215, 0, 0.4);
+}
+
+/* Daily Badge */
+.daily-badge .badge-ribbon {
+  position: absolute;
+  bottom: -15px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.ribbon-top,
+.ribbon-middle,
+.ribbon-bottom {
+  background: #FF6B35;
+  width: 20px;
+  height: 8px;
+  margin: 2px auto;
+  border-radius: 2px;
+}
+
+.ribbon-middle {
+  width: 25px;
+  height: 12px;
+  background: #FFD700;
+}
+
+/* Task Badge (Red) */
+.red-badge {
+  background: linear-gradient(45deg, #dc3545, #c82333) !important;
+}
+
+.badge-center {
+  width: 50px;
+  height: 50px;
+  background: #FFD700;
+  border-radius: 50%;
+  border: 3px solid white;
+}
+
+.red-ribbon {
+  position: absolute;
+  bottom: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 2px;
+}
+
+.red-ribbon .ribbon-top,
+.red-ribbon .ribbon-bottom {
+  background: #dc3545;
+  width: 12px;
+  height: 20px;
+  clip-path: polygon(0 0, 100% 0, 80% 100%, 20% 100%);
+}
+
+/* Gold Badge */
+.gold-badge {
+  background: linear-gradient(45deg, #FFD700, #B8860B) !important;
+}
+
+.gold-center {
+  width: 50px;
+  height: 50px;
+  background: radial-gradient(circle, #FFD700, #B8860B);
+  border-radius: 50%;
+  border: 3px solid white;
+}
+
+.badge-star {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 24px;
+  color: white;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.gold-ribbon {
+  position: absolute;
+  bottom: -15px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 5px;
+}
+
+.ribbon-left,
+.ribbon-right {
+  background: #B8860B;
+  width: 15px;
+  height: 25px;
+  clip-path: polygon(0 0, 100% 0, 85% 100%, 15% 100%);
+}
+
+/* Claim Button */
+.claim-btn {
+  background: rgba(255, 255, 255, 0.9);
+  color: #333;
+  border: none;
+  padding: 12px 25px;
+  border-radius: 25px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin-top: 20px;
+  font-size: 14px;
+}
+
+.claim-btn:hover {
+  background: white;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.claim-btn.claimed {
+  background: rgba(108, 117, 125, 0.8);
+  color: white;
+  cursor: not-allowed;
+}
+
+.claim-btn:disabled {
+  transform: none;
+  box-shadow: none;
+}
+
+/* Statistics Section */
+.stats-section {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 25px;
+  margin-bottom: 40px;
+}
+
+.stat-card {
+  background: white;
+  border-radius: 20px;
+  padding: 30px;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+  text-align: center;
+  transition: transform 0.3s ease;
+}
+
+.stat-card:hover {
+  transform: translateY(-5px);
+}
+
+.badges-card {
+  background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+}
+
+.ranking-card {
+  background: linear-gradient(135deg, #fff3cd, #ffeaa7);
+}
+
+.stat-content h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #8B7355;
+  margin: 0 0 20px 0;
+}
+
+.stat-number {
+  font-size: 64px;
+  font-weight: 700;
+  color: #8B7355;
+  margin: 20px 0;
+  line-height: 1;
+}
+
+.stat-description {
+  font-size: 16px;
+  color: #666;
+  margin: 0;
+}
+
+/* Ranking Display */
+.ranking-display {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 20px 0;
+}
+
+.hashtag {
+  font-size: 48px;
+  font-weight: 700;
+  color: #B8860B;
+}
+
+.rank-number {
+  font-size: 80px;
+  font-weight: 700;
+  color: #FFD700;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Badge Collection */
+.badge-collection {
+  background: white;
+  border-radius: 20px;
+  padding: 30px;
+  margin-bottom: 40px;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+}
+
+.badge-collection h2 {
+  font-size: 24px;
+  font-weight: 700;
+  color: #333;
+  margin: 0 0 25px 0;
+  text-align: center;
+}
+
+.badges-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 20px;
+}
+
+.collected-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+  border-radius: 15px;
+  background: #f8f9fa;
+  transition: all 0.3s ease;
+  opacity: 0;
+  animation: fadeInUp 0.6s ease forwards;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.collected-badge:hover {
+  background: #e9ecef;
+  transform: translateY(-3px);
+}
+
+.badge-icon {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  margin-bottom: 10px;
+  color: white;
+}
+
+.badge-icon.daily {
+  background: linear-gradient(45deg, #FFD700, #FFA500);
+}
+
+.badge-icon.task {
+  background: linear-gradient(45deg, #dc3545, #c82333);
+}
+
+.badge-icon.time {
+  background: linear-gradient(45deg, #17a2b8, #138496);
+}
+
+.badge-icon.streak {
+  background: linear-gradient(45deg, #fd7e14, #e55100);
+}
+
+.badge-icon.productivity {
+  background: linear-gradient(45deg, #28a745, #20c997);
+}
+
+.badge-icon.milestone {
+  background: linear-gradient(45deg, #6f42c1, #5a32a3);
+}
+
+.collected-badge span {
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+  text-align: center;
+}
+
+/* Leaderboard */
+.leaderboard-section {
+  background: white;
+  border-radius: 20px;
+  padding: 30px;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+}
+
+.leaderboard-section h2 {
+  font-size: 24px;
+  font-weight: 700;
+  color: #333;
+  margin: 0 0 25px 0;
+  text-align: center;
+}
+
+.leaderboard {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.leaderboard-item {
+  display: flex;
+  align-items: center;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 15px;
+  transition: all 0.3s ease;
+}
+
+.leaderboard-item:hover {
+  background: #e9ecef;
+  transform: translateX(5px);
+}
+
+.leaderboard-item.current-user {
+  background: linear-gradient(135deg, #fff3cd, #ffeaa7);
+  border: 2px solid #FFD700;
+}
+
+.rank {
+  font-size: 24px;
+  font-weight: 700;
+  color: #8B7355;
+  margin-right: 20px;
+  min-width: 50px;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  flex: 1;
+}
+
+.user-avatar {
+  width: 50px;
+  height: 50px;
+  background: linear-gradient(45deg, #8B7355, #6d5d48);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 24px;
+}
+
+.user-details {
+  display: flex;
+  flex-direction: column;
+}
+
+.user-name-text {
+  font-weight: 600;
+  color: #333;
+  font-size: 16px;
+}
+
+.user-points {
+  color: #666;
+  font-size: 14px;
+}
+
+.user-badges {
+  font-weight: 600;
+  color: #8B7355;
+  font-size: 14px;
+}
+
+/* Modal Styles */
+.modal {
+  position: fixed;
+  z-index: 1000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(5px);
+}
+
+.modal-content {
+  background-color: white;
+  margin: 10% auto;
+  padding: 0;
+  border-radius: 20px;
+  width: 90%;
+  max-width: 400px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.close {
+  color: #aaa;
+  float: right;
+  font-size: 28px;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 15px;
+  line-height: 1;
+}
+
+.close:hover {
+  color: #333;
+}
+
+.modal-reward {
+  text-align: center;
+  padding: 30px;
+}
+
+.modal-badge {
+  font-size: 64px;
+  margin-bottom: 20px;
+  display: block;
+}
+
+.modal-reward h3 {
+  font-size: 24px;
+  font-weight: 700;
+  color: #333;
+  margin: 0 0 10px 0;
+}
+
+.modal-reward p {
+  color: #666;
+  margin: 0 0 20px 0;
+  font-size: 16px;
+}
+
+.modal-points {
+  background: linear-gradient(45deg, #28a745, #20c997);
+  color: white;
+  padding: 10px 20px;
+  border-radius: 25px;
+  font-weight: 600;
+  margin: 20px 0;
+  display: inline-block;
+}
+
+.collect-btn {
+  background: linear-gradient(45deg, #b19176, #8B7355);
+  color: white;
+  border: none;
+  padding: 12px 30px;
+  border-radius: 25px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 16px;
+}
+
+.collect-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(139, 115, 85, 0.4);
+}
+
+/* Success Notification */
+.success-notification {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: linear-gradient(45deg, #28a745, #20c997);
+  color: white;
+  padding: 15px 25px;
+  border-radius: 10px;
+  font-weight: 600;
+  box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);
+  z-index: 1001;
+  transform: translateX(100%);
+  transition: transform 0.3s ease;
+}
+
+.success-notification.show {
+  transform: translateX(0);
+}
+
+/* Responsive Design */
+@media (max-width: 1200px) {
+  .rewards-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .reward-card:last-child {
+    grid-column: 1 / -1;
+    max-width: 400px;
+    margin: 0 auto;
+  }
+  
+  .badges-grid {
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  }
+}
+
+@media (max-width: 1024px) {
+  .rewards-main {
+    padding: 20px;
+  }
+  
+  .rewards-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
+  }
+  
+  .rewards-header h1 {
+    font-size: 28px;
+  }
+  
+  .rewards-grid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  
+  .reward-card {
+    min-height: 250px;
+    padding: 25px 20px;
+  }
+  
+  .stats-section {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  
+  .stat-number {
+    font-size: 48px;
+  }
+  
+  .rank-number {
+    font-size: 60px;
+  }
+  
+  .hashtag {
+    font-size: 36px;
+  }
+}
+
+@media (max-width: 768px) {
+  .reward-content h3 {
+    font-size: 16px;
+  }
+  
+  .badge-circle {
+    width: 70px;
+    height: 70px;
+  }
+  
+  .badge-center {
+    width: 45px;
+    height: 45px;
+  }
+  
+  .gold-center {
+    width: 45px;
+    height: 45px;
+  }
+  
+  .badge-star {
+    font-size: 20px;
+  }
+  
+  .claim-btn {
+    padding: 10px 20px;
+    font-size: 13px;
+  }
+  
+  .stat-content h2 {
+    font-size: 16px;
+  }
+  
+  .stat-number {
+    font-size: 40px;
+  }
+  
+  .rank-number {
+    font-size: 50px;
+  }
+  
+  .hashtag {
+    font-size: 30px;
+  }
+  
+  .badges-grid {
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 15px;
+  }
+  
+  .collected-badge {
+    padding: 15px;
+  }
+  
+  .badge-icon {
+    width: 45px;
+    height: 45px;
+    font-size: 20px;
+  }
+  
+  .collected-badge span {
+    font-size: 12px;
+  }
+  
+  .leaderboard-item {
+    padding: 15px;
+  }
+  
+  .rank {
+    font-size: 20px;
+    margin-right: 15px;
+    min-width: 40px;
+  }
+  
+  .user-avatar {
+    width: 45px;
+    height: 45px;
+    font-size: 20px;
+  }
+  
+  .user-name-text {
+    font-size: 14px;
+  }
+  
+  .user-points,
+  .user-badges {
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .rewards-main {
+    padding: 15px;
+  }
+  
+  .rewards-header h1 {
+    font-size: 24px;
+  }
+  
+  .reward-card {
+    min-height: 220px;
+    padding: 20px 15px;
+  }
+  
+  .reward-content h3 {
+    font-size: 15px;
+    margin-bottom: 15px;
+  }
+  
+  .badge-circle {
+    width: 60px;
+    height: 60px;
+  }
+  
+  .badge-center {
+    width: 40px;
+    height: 40px;
+  }
+  
+  .gold-center {
+    width: 40px;
+    height: 40px;
+  }
+  
+  .badge-star {
+    font-size: 18px;
+  }
+  
+  .badge-collection,
+  .leaderboard-section {
+    padding: 20px 15px;
+  }
+  
+  .badge-collection h2,
+  .leaderboard-section h2 {
+    font-size: 20px;
+  }
+  
+  .stat-number {
+    font-size: 36px;
+  }
+  
+  .rank-number {
+    font-size: 45px;
+  }
+  
+  .hashtag {
+    font-size: 28px;
+  }
+  
+  .badges-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+  
+  .collected-badge {
+    padding: 12px;
+  }
+  
+  .badge-icon {
+    width: 40px;
+    height: 40px;
+    font-size: 18px;
+    margin-bottom: 8px;
+  }
+  
+  .collected-badge span {
+    font-size: 11px;
+  }
+  
+  .leaderboard-item {
+    padding: 12px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  
+  .rank {
+    font-size: 18px;
+    margin-right: 0;
+    min-width: auto;
+  }
+  
+  .user-info {
+    width: 100%;
+    gap: 12px;
+  }
+  
+  .user-avatar {
+    width: 40px;
+    height: 40px;
+    font-size: 18px;
+  }
+  
+  .modal-content {
+    margin: 15% auto;
+    width: 95%;
+  }
+  
+  .modal-reward {
+    padding: 25px 20px;
+  }
+  
+  .modal-badge {
+    font-size: 48px;
+  }
+  
+  .modal-reward h3 {
+    font-size: 20px;
+  }
+  
+  .collect-btn {
+    padding: 10px 25px;
+    font-size: 14px;
+  }
+  
+  .success-notification {
+    right: 10px;
+    left: 10px;
+    transform: translateY(-100%);
+  }
+  
+  .success-notification.show {
+    transform: translateY(0);
+  }
+}
+
+/* Print Styles */
+@media print {
+  .sidebar,
+  .claim-btn,
+  .modal {
+    display: none !important;
+  }
+  
+  .rewards-main {
+    padding: 0;
+  }
+  
+  .reward-card,
+  .stat-card,
+  .badge-collection,
+  .leaderboard-section {
+    background: white !important;
+    color: #333 !important;
+    border: 1px solid #ddd;
+    break-inside: avoid;
+  }
+  
+  .leaderboard-item {
+    background: #f8f9fa !important;
+  }
+  
+  .leaderboard-item.current-user {
+    background: #fff3cd !important;
+  }
+}
+
+/* Animation for badge collection */
+@keyframes bounceIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  70% {
+    transform: scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.reward-badge {
+  animation: bounceIn 0.6s ease;
+}
+
+/* Hover effects for interactive elements */
+.badge-circle:hover {
+  transform: scale(1.1);
+  transition: transform 0.3s ease;
+}
+
+.collected-badge:hover .badge-icon {
+  transform: rotate(10deg);
+  transition: transform 0.3s ease;
+}
+
+/* Glow effect for rank #1 */
+.ranking-display {
+  position: relative;
+}
+
+.ranking-display::before {
+  content: '';
+  position: absolute;
+  top: -10px;
+  left: -10px;
+  right: -10px;
+  bottom: -10px;
+  background: radial-gradient(circle, rgba(255, 215, 0, 0.3), transparent);
+  border-radius: 50%;
+  z-index: -1;
+  animation: glow 2s ease-in-out infinite alternate;
+}
+
+@keyframes glow {
+  from {
+    opacity: 0.5;
+  }
+  to {
+    opacity: 1;
+  }
+}
