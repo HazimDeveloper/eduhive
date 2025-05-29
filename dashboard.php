@@ -1,3 +1,44 @@
+<?php
+require_once 'config/database.php';
+require_once 'config/session.php';
+
+requireLogin();
+
+$database = new Database();
+$db = $database->getConnection();
+$user_id = getCurrentUserId();
+$user_name = $_SESSION['user_name'];
+
+// Get dashboard data
+$task_stats_query = "SELECT 
+    COUNT(*) as total_tasks,
+    SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as completed_tasks
+    FROM tasks WHERE user_id = :user_id";
+$stmt = $db->prepare($task_stats_query);
+$stmt->bindParam(':user_id', $user_id);
+$stmt->execute();
+$task_stats = $stmt->fetch(PDO::FETCH_ASSOC);
+
+// Get due today task
+$due_today_query = "SELECT title, due_date FROM tasks WHERE user_id = :user_id AND due_date = CURDATE() AND status != 'done' LIMIT 1";
+$stmt = $db->prepare($due_today_query);
+$stmt->bindParam(':user_id', $user_id);
+$stmt->execute();
+$due_today_task = $stmt->fetch(PDO::FETCH_ASSOC);
+
+// Get user progress
+$progress_query = "SELECT total_badges FROM user_progress WHERE user_id = :user_id";
+$stmt = $db->prepare($progress_query);
+$stmt->bindParam(':user_id', $user_id);
+$stmt->execute();
+$user_progress = $stmt->fetch(PDO::FETCH_ASSOC);
+
+// Calculate progress percentage
+$progress_percentage = 0;
+if ($task_stats['total_tasks'] > 0) {
+    $progress_percentage = round(($task_stats['completed_tasks'] / $task_stats['total_tasks']) * 100);
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -22,25 +63,25 @@
       
       <ul class="nav-menu">
         <li class="nav-item active">
-          <a href="#dashboard">Dashboard</a>
+          <a href="dashboard.php">Dashboard</a>
         </li>
         <li class="nav-item">
-          <a href="#calendar">Calendar</a>
+          <a href="calendar.php">Calendar</a>
         </li>
         <li class="nav-item">
-          <a href="#schedules">Class Schedules</a>
+          <a href="class_schedule.php">Class Schedules</a>
         </li>
         <li class="nav-item">
-          <a href="#task">Task</a>
+          <a href="task.php">Task</a>
         </li>
         <li class="nav-item">
-          <a href="#record">Record Time</a>
+          <a href="record_time.php">Record Time</a>
         </li>
         <li class="nav-item">
-          <a href="#reward">Reward</a>
+          <a href="reward.php">Reward</a>
         </li>
         <li class="nav-item">
-          <a href="#team">Team Members</a>
+          <a href="team_member.php">Team Members</a>
         </li>
       </ul>
     </nav>
@@ -50,27 +91,31 @@
       <div class="content-area">
         <div class="dashboard-header">
           <h1>Dashboard</h1>
-          <div class="user-name">NUR KHALIDA BINTI NAZERI ></div>
+          <div class="user-name"><?php echo htmlspecialchars($user_name); ?> > <a href="auth/logout.php" style="color: #666; text-decoration: none;">Logout</a></div>
         </div>
         
         <div class="dashboard-grid">
           <!-- Task Statistics -->
           <div class="dashboard-card">
             <h3>Total Task Overall</h3>
-            <div class="big-number">24</div>
+            <div class="big-number" id="totalTasks"><?php echo $task_stats['total_tasks']; ?></div>
           </div>
           
           <div class="dashboard-card">
             <h3>Total Task Completed</h3>
-            <div class="big-number">22</div>
+            <div class="big-number" id="completedTasks"><?php echo $task_stats['completed_tasks']; ?></div>
           </div>
           
           <!-- Due Today Card -->
           <div class="dashboard-card due-today">
             <h3>Due Today</h3>
-            <div class="task-details">
-              <p><strong>Title:</strong> Submit D5</p>
-              <p><strong>Date:</strong> 15/6/2025</p>
+            <div class="task-details" id="dueTodayTask">
+              <?php if ($due_today_task): ?>
+                <p><strong>Title:</strong> <?php echo htmlspecialchars($due_today_task['title']); ?></p>
+                <p><strong>Date:</strong> <?php echo date('d/m/Y', strtotime($due_today_task['due_date'])); ?></p>
+              <?php else: ?>
+                <p>No tasks due today!</p>
+              <?php endif; ?>
             </div>
           </div>
           
@@ -91,7 +136,7 @@
               <div class="reward-badge">🏆</div>
               <div class="reward-medal">🥇</div>
             </div>
-            <button class="reward-btn">Open Reward</button>
+            <button class="reward-btn" onclick="window.location.href='reward.php'">Open Reward</button>
           </div>
           
           <!-- Project Progress -->
@@ -102,10 +147,10 @@
                 <svg width="120" height="120" viewBox="0 0 120 120">
                   <circle cx="60" cy="60" r="50" stroke="#e0e0e0" stroke-width="10" fill="none"/>
                   <circle cx="60" cy="60" r="50" stroke="#8B7355" stroke-width="10" fill="none"
-                          stroke-dasharray="314" stroke-dashoffset="138" transform="rotate(-90 60 60)"/>
+                          stroke-dasharray="314" stroke-dashoffset="<?php echo 314 - (314 * $progress_percentage / 100); ?>" transform="rotate(-90 60 60)"/>
                 </svg>
                 <div class="progress-text">
-                  <span class="percentage">56%</span>
+                  <span class="percentage"><?php echo $progress_percentage; ?>%</span>
                   <span class="label">Completed</span>
                 </div>
               </div>
@@ -119,9 +164,9 @@
     <aside class="calendar-section">
       <div class="calendar-widget">
         <div class="calendar-header">
-          <button class="calendar-nav">&lt;</button>
-          <h3>JUNE 2025</h3>
-          <button class="calendar-nav">&gt;</button>
+          <button class="calendar-nav" onclick="changeMonth(-1)">&lt;</button>
+          <h3 id="currentMonth">JUNE 2025</h3>
+          <button class="calendar-nav" onclick="changeMonth(1)">&gt;</button>
         </div>
         
         <div class="calendar-grid">
@@ -133,39 +178,103 @@
           <div class="calendar-day-header">FRI</div>
           <div class="calendar-day-header">SAT</div>
           
-          <div class="calendar-day">1</div>
-          <div class="calendar-day">2</div>
-          <div class="calendar-day">3</div>
-          <div class="calendar-day">4</div>
-          <div class="calendar-day">5</div>
-          <div class="calendar-day">6</div>
-          <div class="calendar-day">7</div>
-          <div class="calendar-day">8</div>
-          <div class="calendar-day">9</div>
-          <div class="calendar-day">10</div>
-          <div class="calendar-day">11</div>
-          <div class="calendar-day">12</div>
-          <div class="calendar-day">13</div>
-          <div class="calendar-day">14</div>
-          <div class="calendar-day">15</div>
-          <div class="calendar-day">16</div>
-          <div class="calendar-day">17</div>
-          <div class="calendar-day">18</div>
-          <div class="calendar-day">19</div>
-          <div class="calendar-day">20</div>
-          <div class="calendar-day">21</div>
-          <div class="calendar-day">22</div>
-          <div class="calendar-day">23</div>
-          <div class="calendar-day">24</div>
-          <div class="calendar-day">25</div>
-          <div class="calendar-day">26</div>
-          <div class="calendar-day">27</div>
-          <div class="calendar-day">28</div>
-          <div class="calendar-day">29</div>
-          <div class="calendar-day">30</div>
+          <div id="calendarDays"></div>
         </div>
       </div>
     </aside>
   </div>
+
+  <script>
+    // Auto-refresh dashboard data every 30 seconds
+    setInterval(refreshDashboard, 30000);
+    
+    function refreshDashboard() {
+      fetch('api/dashboard.php')
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            const stats = data.data.task_stats;
+            document.getElementById('totalTasks').textContent = stats.total_tasks;
+            document.getElementById('completedTasks').textContent = stats.completed_tasks;
+            
+            // Update due today task
+            const dueTask = data.data.due_today_task;
+            const dueTodayDiv = document.getElementById('dueTodayTask');
+            if (dueTask) {
+              dueTodayDiv.innerHTML = `
+                <p><strong>Title:</strong> ${dueTask.title}</p>
+                <p><strong>Date:</strong> ${new Date(dueTask.due_date).toLocaleDateString()}</p>
+              `;
+            } else {
+              dueTodayDiv.innerHTML = '<p>No tasks due today!</p>';
+            }
+            
+            // Update progress
+            const progress = data.data.user_progress;
+            if (stats.total_tasks > 0) {
+              const percentage = Math.round((stats.completed_tasks / stats.total_tasks) * 100);
+              document.querySelector('.percentage').textContent = percentage + '%';
+              
+              // Update progress circle
+              const circle = document.querySelector('.progress-chart circle:last-child');
+              const dashOffset = 314 - (314 * percentage / 100);
+              circle.setAttribute('stroke-dashoffset', dashOffset);
+            }
+          }
+        })
+        .catch(error => console.error('Error refreshing dashboard:', error));
+    }
+
+    // Calendar functionality
+    let currentDate = new Date();
+    
+    function renderCalendar() {
+      const year = currentDate.getFullYear();
+      const month = currentDate.getMonth();
+      
+      // Update month header
+      const monthNames = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE",
+                         "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"];
+      document.getElementById('currentMonth').textContent = `${monthNames[month]} ${year}`;
+      
+      // Get first day of month and number of days
+      const firstDay = new Date(year, month, 1).getDay();
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      
+      // Clear calendar
+      const calendarDays = document.getElementById('calendarDays');
+      calendarDays.innerHTML = '';
+      
+      // Add empty cells for days before first day of month
+      for (let i = 0; i < firstDay; i++) {
+        const emptyDay = document.createElement('div');
+        emptyDay.className = 'calendar-day';
+        calendarDays.appendChild(emptyDay);
+      }
+      
+      // Add days of month
+      const today = new Date();
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dayElement = document.createElement('div');
+        dayElement.className = 'calendar-day';
+        dayElement.textContent = day;
+        
+        // Highlight today
+        if (year === today.getFullYear() && month === today.getMonth() && day === today.getDate()) {
+          dayElement.classList.add('today');
+        }
+        
+        calendarDays.appendChild(dayElement);
+      }
+    }
+    
+    function changeMonth(direction) {
+      currentDate.setMonth(currentDate.getMonth() + direction);
+      renderCalendar();
+    }
+    
+    // Initialize calendar
+    renderCalendar();
+  </script>
 </body>
 </html>

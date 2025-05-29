@@ -1,3 +1,32 @@
+<?php
+require_once 'config/database.php';
+
+requireLogin();
+
+$database = new Database();
+$db = $database->getConnection();
+$user_id = getCurrentUserId();
+$user_name = $_SESSION['user_name'];
+
+// Get task statistics
+$task_stats_query = "SELECT 
+    COUNT(*) as total_tasks,
+    SUM(CASE WHEN status = 'todo' THEN 1 ELSE 0 END) as todo_tasks,
+    SUM(CASE WHEN status = 'progress' THEN 1 ELSE 0 END) as progress_tasks,
+    SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as done_tasks
+    FROM tasks WHERE user_id = :user_id";
+$stmt = $db->prepare($task_stats_query);
+$stmt->bindParam(':user_id', $user_id);
+$stmt->execute();
+$task_stats = $stmt->fetch(PDO::FETCH_ASSOC);
+
+// Get courses
+$courses_query = "SELECT * FROM courses WHERE user_id = :user_id ORDER BY name";
+$stmt = $db->prepare($courses_query);
+$stmt->bindParam(':user_id', $user_id);
+$stmt->execute();
+$courses = $stmt->fetchAll(PDO::FETCH_ASSOC);
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -23,25 +52,25 @@
       
       <ul class="nav-menu">
         <li class="nav-item">
-          <a href="dashboard.html">Dashboard</a>
+          <a href="dashboard.php">Dashboard</a>
         </li>
         <li class="nav-item">
-          <a href="calendar.html">Calendar</a>
+          <a href="calendar.php">Calendar</a>
         </li>
         <li class="nav-item">
-          <a href="schedule.html">Class Schedules</a>
+          <a href="class_schedule.php">Class Schedules</a>
         </li>
         <li class="nav-item active">
-          <a href="#task">Task</a>
+          <a href="task.php">Task</a>
         </li>
         <li class="nav-item">
-          <a href="#record">Record Time</a>
+          <a href="record_time.php">Record Time</a>
         </li>
         <li class="nav-item">
-          <a href="#reward">Reward</a>
+          <a href="reward.php">Reward</a>
         </li>
         <li class="nav-item">
-          <a href="#team">Team Members</a>
+          <a href="team_member.php">Team Members</a>
         </li>
       </ul>
     </nav>
@@ -54,9 +83,9 @@
           <div class="task-icon">📋</div>
         </div>
         <div class="header-actions">
-          <span class="user-name">NUR KHALIDA BINTI NAZERI ></span>
-          <button class="add-course-btn">+ Add Course</button>
-          <button class="add-task-btn">+ Add Task</button>
+          <span class="user-name"><?php echo htmlspecialchars($user_name); ?> ></span>
+          <button class="add-course-btn" id="addCourseBtn">+ Add Course</button>
+          <button class="add-task-btn" id="addTaskBtn">+ Add Task</button>
         </div>
       </div>
       
@@ -66,7 +95,7 @@
           <div class="status-icon">⏰</div>
           <div class="status-content">
             <h3>To Do</h3>
-            <p>1 task now • 1 started</p>
+            <p id="todoCount"><?php echo $task_stats['todo_tasks']; ?> task<?php echo $task_stats['todo_tasks'] != 1 ? 's' : ''; ?> now</p>
           </div>
         </div>
         
@@ -74,7 +103,7 @@
           <div class="status-icon">⚡</div>
           <div class="status-content">
             <h3>In Progress</h3>
-            <p>5 tasks now • 1 started</p>
+            <p id="progressCount"><?php echo $task_stats['progress_tasks']; ?> task<?php echo $task_stats['progress_tasks'] != 1 ? 's' : ''; ?> now</p>
           </div>
         </div>
         
@@ -82,30 +111,20 @@
           <div class="status-icon">✅</div>
           <div class="status-content">
             <h3>Done</h3>
-            <p>18 tasks now • 18 started</p>
+            <p id="doneCount"><?php echo $task_stats['done_tasks']; ?> task<?php echo $task_stats['done_tasks'] != 1 ? 's' : ''; ?> now</p>
           </div>
         </div>
       </div>
       
       <!-- Course Cards -->
       <div class="course-grid">
-        <div class="course-card fyp-card">
-          <h3>FYP</h3>
-          <p class="task-count">1 task pending</p>
-          <button class="add-task-course-btn">+ Add Task</button>
+        <?php foreach ($courses as $course): ?>
+        <div class="course-card <?php echo strtolower($course['name']); ?>-card">
+          <h3><?php echo htmlspecialchars($course['name']); ?></h3>
+          <p class="task-count" id="taskCount<?php echo $course['id']; ?>">Loading...</p>
+          <button class="add-task-course-btn" data-course="<?php echo htmlspecialchars($course['name']); ?>">+ Add Task</button>
         </div>
-        
-        <div class="course-card programming-card">
-          <h3>PROGRAMMING</h3>
-          <p class="task-count">No task</p>
-          <button class="add-task-course-btn">+ Add Task</button>
-        </div>
-        
-        <div class="course-card harta-card">
-          <h3>HARTA</h3>
-          <p class="task-count">No task</p>
-          <button class="add-task-course-btn">+ Add Task</button>
-        </div>
+        <?php endforeach; ?>
       </div>
       
       <!-- Task List Section -->
@@ -113,52 +132,21 @@
         <div class="task-column">
           <h4>To Do Tasks</h4>
           <div class="task-list" id="todoTasks">
-            <div class="task-item">
-              <input type="checkbox" class="task-checkbox">
-              <div class="task-details">
-                <h5>Submit Literature Review</h5>
-                <p>FYP - Due: Tomorrow</p>
-              </div>
-              <div class="task-actions">
-                <button class="edit-task">✏️</button>
-                <button class="delete-task">🗑️</button>
-              </div>
-            </div>
+            <!-- Tasks will be loaded here via JavaScript -->
           </div>
         </div>
         
         <div class="task-column">
           <h4>In Progress Tasks</h4>
           <div class="task-list" id="progressTasks">
-            <div class="task-item">
-              <input type="checkbox" class="task-checkbox">
-              <div class="task-details">
-                <h5>Chapter 3 Research</h5>
-                <p>FYP - Due: Next week</p>
-              </div>
-              <div class="task-actions">
-                <button class="edit-task">✏️</button>
-                <button class="delete-task">🗑️</button>
-              </div>
-            </div>
-            <!-- Add more in-progress tasks here -->
+            <!-- Tasks will be loaded here via JavaScript -->
           </div>
         </div>
         
         <div class="task-column">
           <h4>Completed Tasks</h4>
           <div class="task-list" id="completedTasks">
-            <div class="task-item completed">
-              <input type="checkbox" class="task-checkbox" checked>
-              <div class="task-details">
-                <h5>Research Proposal</h5>
-                <p>FYP - Completed</p>
-              </div>
-              <div class="task-actions">
-                <button class="delete-task">🗑️</button>
-              </div>
-            </div>
-            <!-- More completed tasks would be loaded here -->
+            <!-- Tasks will be loaded here via JavaScript -->
           </div>
         </div>
       </div>
@@ -171,21 +159,21 @@
       <span class="close">&times;</span>
       <h3>Add New Task</h3>
       <form id="addTaskForm">
-        <input type="text" id="taskTitle" placeholder="Task Title" required>
-        <textarea id="taskDescription" placeholder="Task Description"></textarea>
-        <select id="taskCourse" required>
+        <input type="text" id="taskTitle" name="title" placeholder="Task Title" required>
+        <textarea id="taskDescription" name="description" placeholder="Task Description"></textarea>
+        <select id="taskCourse" name="course" required>
           <option value="">Select Course</option>
-          <option value="FYP">FYP</option>
-          <option value="PROGRAMMING">PROGRAMMING</option>
-          <option value="HARTA">HARTA</option>
+          <?php foreach ($courses as $course): ?>
+          <option value="<?php echo htmlspecialchars($course['name']); ?>"><?php echo htmlspecialchars($course['name']); ?></option>
+          <?php endforeach; ?>
         </select>
-        <select id="taskPriority" required>
+        <select id="taskPriority" name="priority" required>
           <option value="">Select Priority</option>
           <option value="low">Low</option>
           <option value="medium">Medium</option>
           <option value="high">High</option>
         </select>
-        <input type="date" id="taskDueDate" required>
+        <input type="date" id="taskDueDate" name="due_date" required>
         <div class="form-buttons">
           <button type="submit">Add Task</button>
           <button type="button" id="cancelTask">Cancel</button>
@@ -200,10 +188,10 @@
       <span class="close">&times;</span>
       <h3>Add New Course</h3>
       <form id="addCourseForm">
-        <input type="text" id="courseName" placeholder="Course Name" required>
-        <input type="text" id="courseCode" placeholder="Course Code" required>
-        <textarea id="courseDescription" placeholder="Course Description"></textarea>
-        <select id="courseColor" required>
+        <input type="text" id="courseName" name="name" placeholder="Course Name" required>
+        <input type="text" id="courseCode" name="code" placeholder="Course Code" required>
+        <textarea id="courseDescription" name="description" placeholder="Course Description"></textarea>
+        <select id="courseColor" name="color" required>
           <option value="">Select Color Theme</option>
           <option value="brown">Brown</option>
           <option value="blue">Blue</option>
@@ -220,34 +208,44 @@
   </div>
 
   <script>
+    let tasks = [];
+    let courses = <?php echo json_encode($courses); ?>;
+
     document.addEventListener('DOMContentLoaded', function() {
-      // Modal elements
+      initializeEventListeners();
+      loadTasks();
+      updateCourseTaskCounts();
+    });
+
+    function initializeEventListeners() {
+      // Modal controls
       const taskModal = document.getElementById('addTaskModal');
       const courseModal = document.getElementById('addCourseModal');
-      const addTaskBtns = document.querySelectorAll('.add-task-btn, .add-task-course-btn');
-      const addCourseBtn = document.querySelector('.add-course-btn');
+      const addTaskBtn = document.getElementById('addTaskBtn');
+      const addCourseBtn = document.getElementById('addCourseBtn');
       const closeModals = document.querySelectorAll('.close');
       const cancelBtns = document.querySelectorAll('#cancelTask, #cancelCourse');
 
-      // Task and course data
-      let tasks = JSON.parse(localStorage.getItem('eduhive-tasks')) || [];
-      let courses = JSON.parse(localStorage.getItem('eduhive-courses')) || [
-        { name: 'FYP', code: 'FYP', color: 'brown' },
-        { name: 'PROGRAMMING', code: 'PROG', color: 'blue' },
-        { name: 'HARTA', code: 'HARTA', color: 'orange' }
-      ];
-
-      // Event listeners for modals
-      addTaskBtns.forEach(btn => {
-        btn.addEventListener('click', () => {
-          taskModal.style.display = 'block';
-        });
+      // Add task button
+      addTaskBtn.addEventListener('click', () => {
+        taskModal.style.display = 'block';
       });
 
+      // Add course button
       addCourseBtn.addEventListener('click', () => {
         courseModal.style.display = 'block';
       });
 
+      // Course-specific add task buttons
+      document.querySelectorAll('.add-task-course-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const courseName = e.target.getAttribute('data-course');
+          document.getElementById('taskCourse').value = courseName;
+          taskModal.style.display = 'block';
+        });
+      });
+
+      // Close modals
       closeModals.forEach(close => {
         close.addEventListener('click', () => {
           taskModal.style.display = 'none';
@@ -262,6 +260,7 @@
         });
       });
 
+      // Close modal on outside click
       window.addEventListener('click', (event) => {
         if (event.target === taskModal) {
           taskModal.style.display = 'none';
@@ -271,188 +270,331 @@
         }
       });
 
-      // Add task form submission
-      document.getElementById('addTaskForm').addEventListener('submit', (e) => {
-        e.preventDefault();
-        
-        const newTask = {
-          id: Date.now(),
-          title: document.getElementById('taskTitle').value,
-          description: document.getElementById('taskDescription').value,
-          course: document.getElementById('taskCourse').value,
-          priority: document.getElementById('taskPriority').value,
-          dueDate: document.getElementById('taskDueDate').value,
-          status: 'todo',
-          createdAt: new Date().toISOString()
-        };
+      // Form submissions
+      document.getElementById('addTaskForm').addEventListener('submit', handleAddTask);
+      document.getElementById('addCourseForm').addEventListener('submit', handleAddCourse);
+    }
 
-        tasks.push(newTask);
-        localStorage.setItem('eduhive-tasks', JSON.stringify(tasks));
-        
-        updateTaskCounts();
-        renderTasks();
-        
-        taskModal.style.display = 'none';
-        document.getElementById('addTaskForm').reset();
-        
-        showNotification('Task added successfully!');
-      });
-
-      // Add course form submission
-      document.getElementById('addCourseForm').addEventListener('submit', (e) => {
-        e.preventDefault();
-        
-        const newCourse = {
-          name: document.getElementById('courseName').value,
-          code: document.getElementById('courseCode').value,
-          description: document.getElementById('courseDescription').value,
-          color: document.getElementById('courseColor').value
-        };
-
-        courses.push(newCourse);
-        localStorage.setItem('eduhive-courses', JSON.stringify(courses));
-        
-        updateCourseGrid();
-        updateCourseOptions();
-        
-        courseModal.style.display = 'none';
-        document.getElementById('addCourseForm').reset();
-        
-        showNotification('Course added successfully!');
-      });
-
-      // Task management functions
-      function updateTaskCounts() {
-        const todoCount = tasks.filter(task => task.status === 'todo').length;
-        const progressCount = tasks.filter(task => task.status === 'progress').length;
-        const doneCount = tasks.filter(task => task.status === 'done').length;
-
-        document.querySelector('.todo-card p').textContent = `${todoCount} task${todoCount !== 1 ? 's' : ''} now • ${todoCount} started`;
-        document.querySelector('.progress-card p').textContent = `${progressCount} task${progressCount !== 1 ? 's' : ''} now • ${progressCount} started`;
-        document.querySelector('.done-card p').textContent = `${doneCount} task${doneCount !== 1 ? 's' : ''} now • ${doneCount} started`;
-      }
-
-      function renderTasks() {
-        const todoList = document.getElementById('todoTasks');
-        const progressList = document.getElementById('progressTasks');
-        const completedList = document.getElementById('completedTasks');
-
-        todoList.innerHTML = '';
-        progressList.innerHTML = '';
-        completedList.innerHTML = '';
-
-        tasks.forEach(task => {
-          const taskElement = createTaskElement(task);
-          
-          if (task.status === 'todo') {
-            todoList.appendChild(taskElement);
-          } else if (task.status === 'progress') {
-            progressList.appendChild(taskElement);
-          } else if (task.status === 'done') {
-            completedList.appendChild(taskElement);
+    function loadTasks() {
+      fetch('api/tasks.php')
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            tasks = data.data;
+            renderTasks();
+            updateTaskCounts();
+          } else {
+            showNotification('Failed to load tasks: ' + data.message, 'error');
           }
+        })
+        .catch(error => {
+          console.error('Error loading tasks:', error);
+          showNotification('Error loading tasks', 'error');
         });
+    }
+
+    function renderTasks() {
+      const todoList = document.getElementById('todoTasks');
+      const progressList = document.getElementById('progressTasks');
+      const completedList = document.getElementById('completedTasks');
+
+      todoList.innerHTML = '';
+      progressList.innerHTML = '';
+      completedList.innerHTML = '';
+
+      if (tasks.length === 0) {
+        todoList.innerHTML = '<div class="no-tasks">No tasks yet. Click "Add Task" to get started!</div>';
+        return;
       }
 
-      function createTaskElement(task) {
-        const taskDiv = document.createElement('div');
-        taskDiv.className = `task-item ${task.status === 'done' ? 'completed' : ''}`;
-        taskDiv.innerHTML = `
-          <input type="checkbox" class="task-checkbox" ${task.status === 'done' ? 'checked' : ''} 
-                 onchange="updateTaskStatus(${task.id}, this.checked)">
-          <div class="task-details">
-            <h5>${task.title}</h5>
-            <p>${task.course} - Due: ${formatDate(task.dueDate)}</p>
-          </div>
-          <div class="task-actions">
-            ${task.status !== 'done' ? '<button class="edit-task" onclick="editTask(' + task.id + ')">✏️</button>' : ''}
-            <button class="delete-task" onclick="deleteTask(${task.id})">🗑️</button>
-          </div>
-        `;
-        return taskDiv;
-      }
-
-      function formatDate(dateString) {
-        const date = new Date(dateString);
-        const today = new Date();
-        const tomorrow = new Date(today);
-        tomorrow.setDate(tomorrow.getDate() + 1);
-
-        if (date.toDateString() === today.toDateString()) {
-          return 'Today';
-        } else if (date.toDateString() === tomorrow.toDateString()) {
-          return 'Tomorrow';
-        } else {
-          return date.toLocaleDateString();
-        }
-      }
-
-      function updateCourseGrid() {
-        // This would update the course grid display
-        // Implementation depends on your specific needs
-      }
-
-      function updateCourseOptions() {
-        const courseSelect = document.getElementById('taskCourse');
-        courseSelect.innerHTML = '<option value="">Select Course</option>';
+      tasks.forEach(task => {
+        const taskElement = createTaskElement(task);
         
-        courses.forEach(course => {
-          const option = document.createElement('option');
-          option.value = course.name;
-          option.textContent = course.name;
-          courseSelect.appendChild(option);
-        });
+        if (task.status === 'todo') {
+          todoList.appendChild(taskElement);
+        } else if (task.status === 'progress') {
+          progressList.appendChild(taskElement);
+        } else if (task.status === 'done') {
+          completedList.appendChild(taskElement);
+        }
+      });
+    }
+
+    function createTaskElement(task) {
+      const taskDiv = document.createElement('div');
+      taskDiv.className = `task-item ${task.status === 'done' ? 'completed' : ''}`;
+      taskDiv.setAttribute('data-priority', task.priority);
+      
+      taskDiv.innerHTML = `
+        <input type="checkbox" class="task-checkbox" ${task.status === 'done' ? 'checked' : ''} 
+               onchange="updateTaskStatus(${task.id}, this.checked)">
+        <div class="task-details">
+          <h5>${escapeHtml(task.title)}</h5>
+          <p>${task.course_name || 'No Course'} - Due: ${formatDate(task.due_date)}</p>
+        </div>
+        <div class="task-actions">
+          ${task.status !== 'done' ? `<button class="edit-task" onclick="editTask(${task.id})">✏️</button>` : ''}
+          <button class="delete-task" onclick="deleteTask(${task.id})">🗑️</button>
+        </div>
+      `;
+      
+      return taskDiv;
+    }
+
+    function handleAddTask(e) {
+      e.preventDefault();
+      
+      const formData = new FormData(e.target);
+      
+      fetch('api/tasks.php', {
+        method: 'POST',
+        body: formData
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          showNotification('Task added successfully!', 'success');
+          document.getElementById('addTaskModal').style.display = 'none';
+          e.target.reset();
+          loadTasks();
+        } else {
+          showNotification('Failed to add task: ' + data.message, 'error');
+        }
+      })
+      .catch(error => {
+        console.error('Error adding task:', error);
+        showNotification('Error adding task', 'error');
+      });
+    }
+
+    function handleAddCourse(e) {
+      e.preventDefault();
+      
+      const formData = new FormData(e.target);
+      
+      fetch('api/courses.php', {
+        method: 'POST',
+        body: formData
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          showNotification('Course added successfully!', 'success');
+          document.getElementById('addCourseModal').style.display = 'none';
+          e.target.reset();
+          location.reload(); // Reload to show new course
+        } else {
+          showNotification('Failed to add course: ' + data.message, 'error');
+        }
+      })
+      .catch(error => {
+        console.error('Error adding course:', error);
+        showNotification('Error adding course', 'error');
+      });
+    }
+
+    function updateTaskStatus(taskId, isCompleted) {
+      const status = isCompleted ? 'done' : 'todo';
+      
+      fetch('api/tasks.php', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `task_id=${taskId}&status=${status}`
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          loadTasks(); // Reload tasks to update display
+          showNotification('Task updated successfully!', 'success');
+        } else {
+          showNotification('Failed to update task: ' + data.message, 'error');
+          // Revert checkbox state
+          const checkbox = document.querySelector(`input[onchange="updateTaskStatus(${taskId}, this.checked)"]`);
+          if (checkbox) checkbox.checked = !isCompleted;
+        }
+      })
+      .catch(error => {
+        console.error('Error updating task:', error);
+        showNotification('Error updating task', 'error');
+      });
+    }
+
+    function deleteTask(taskId) {
+      if (!confirm('Are you sure you want to delete this task?')) {
+        return;
       }
+      
+      fetch('api/tasks.php', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `task_id=${taskId}`
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          showNotification('Task deleted successfully!', 'success');
+          loadTasks();
+        } else {
+          showNotification('Failed to delete task: ' + data.message, 'error');
+        }
+      })
+      .catch(error => {
+        console.error('Error deleting task:', error);
+        showNotification('Error deleting task', 'error');
+      });
+    }
 
-      function showNotification(message) {
-        // Simple notification - you could enhance this
-        alert(message);
+    function editTask(taskId) {
+      const task = tasks.find(t => t.id == taskId);
+      if (!task) return;
+      
+      // Pre-fill the form with task data
+      document.getElementById('taskTitle').value = task.title;
+      document.getElementById('taskDescription').value = task.description || '';
+      document.getElementById('taskCourse').value = task.course_name || '';
+      document.getElementById('taskPriority').value = task.priority;
+      document.getElementById('taskDueDate').value = task.due_date;
+      
+      document.getElementById('addTaskModal').style.display = 'block';
+      
+      // Modify form to update instead of create
+      const form = document.getElementById('addTaskForm');
+      form.onsubmit = function(e) {
+        e.preventDefault();
+        updateTask(taskId, new FormData(form));
+      };
+    }
+
+    function updateTask(taskId, formData) {
+      formData.append('task_id', taskId);
+      
+      fetch('api/tasks.php', {
+        method: 'PUT',
+        body: formData
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          showNotification('Task updated successfully!', 'success');
+          document.getElementById('addTaskModal').style.display = 'none';
+          loadTasks();
+          
+          // Reset form handler
+          document.getElementById('addTaskForm').onsubmit = handleAddTask;
+        } else {
+          showNotification('Failed to update task: ' + data.message, 'error');
+        }
+      })
+      .catch(error => {
+        console.error('Error updating task:', error);
+        showNotification('Error updating task', 'error');
+      });
+    }
+
+    function updateTaskCounts() {
+      const todoCount = tasks.filter(task => task.status === 'todo').length;
+      const progressCount = tasks.filter(task => task.status === 'progress').length;
+      const doneCount = tasks.filter(task => task.status === 'done').length;
+
+      document.getElementById('todoCount').textContent = `${todoCount} task${todoCount !== 1 ? 's' : ''} now`;
+      document.getElementById('progressCount').textContent = `${progressCount} task${progressCount !== 1 ? 's' : ''} now`;
+      document.getElementById('doneCount').textContent = `${doneCount} task${doneCount !== 1 ? 's' : ''} now`;
+    }
+
+    function updateCourseTaskCounts() {
+      courses.forEach(course => {
+        const courseTaskCount = tasks.filter(task => task.course_name === course.name).length;
+        const taskCountElement = document.getElementById(`taskCount${course.id}`);
+        if (taskCountElement) {
+          taskCountElement.textContent = courseTaskCount > 0 ? `${courseTaskCount} task${courseTaskCount !== 1 ? 's' : ''}` : 'No tasks';
+        }
+      });
+    }
+
+    function formatDate(dateString) {
+      if (!dateString) return 'No due date';
+      
+      const date = new Date(dateString);
+      const today = new Date();
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      if (date.toDateString() === today.toDateString()) {
+        return 'Today';
+      } else if (date.toDateString() === tomorrow.toDateString()) {
+        return 'Tomorrow';
+      } else {
+        return date.toLocaleDateString();
       }
+    }
 
-      // Global functions for task management
-      window.updateTaskStatus = function(taskId, isCompleted) {
-        const task = tasks.find(t => t.id === taskId);
-        if (task) {
-          task.status = isCompleted ? 'done' : 'todo';
-          localStorage.setItem('eduhive-tasks', JSON.stringify(tasks));
-          updateTaskCounts();
-          setTimeout(() => renderTasks(), 100); // Small delay for smooth transition
-        }
-      };
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
 
-      window.deleteTask = function(taskId) {
-        if (confirm('Are you sure you want to delete this task?')) {
-          tasks = tasks.filter(t => t.id !== taskId);
-          localStorage.setItem('eduhive-tasks', JSON.stringify(tasks));
-          updateTaskCounts();
-          renderTasks();
-          showNotification('Task deleted successfully!');
-        }
-      };
+    function showNotification(message, type = 'info') {
+      const notification = document.createElement('div');
+      notification.className = `notification ${type}`;
+      notification.textContent = message;
+      notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 15px 25px;
+        border-radius: 5px;
+        color: white;
+        font-weight: 500;
+        z-index: 1000;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+      `;
+      
+      if (type === 'success') {
+        notification.style.backgroundColor = '#28a745';
+      } else if (type === 'error') {
+        notification.style.backgroundColor = '#dc3545';
+      } else {
+        notification.style.backgroundColor = '#17a2b8';
+      }
+      
+      document.body.appendChild(notification);
+      
+      setTimeout(() => {
+        notification.style.opacity = '1';
+      }, 100);
+      
+      setTimeout(() => {
+        notification.style.opacity = '0';
+        setTimeout(() => {
+          document.body.removeChild(notification);
+        }, 300);
+      }, 3000);
+    }
 
-      window.editTask = function(taskId) {
-        // Implement edit functionality
-        const task = tasks.find(t => t.id === taskId);
-        if (task) {
-          // Pre-fill the modal with task data
-          document.getElementById('taskTitle').value = task.title;
-          document.getElementById('taskDescription').value = task.description;
-          document.getElementById('taskCourse').value = task.course;
-          document.getElementById('taskPriority').value = task.priority;
-          document.getElementById('taskDueDate').value = task.dueDate;
-          
-          taskModal.style.display = 'block';
-          
-          // Modify form submission to update instead of create
-          // This is a simplified version - you'd want more robust edit handling
-        }
-      };
-
-      // Initialize the page
-      updateTaskCounts();
-      renderTasks();
-      updateCourseOptions();
-    });
+    // Refresh tasks every 30 seconds
+    setInterval(loadTasks, 30000);
   </script>
+
+  <style>
+    .no-tasks {
+      text-align: center;
+      color: #999;
+      font-style: italic;
+      padding: 40px 20px;
+      background: #f8f9fa;
+      border-radius: 12px;
+      border: 2px dashed #ddd;
+    }
+    
+    .notification {
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+  </style>
 </body>
 </html>
