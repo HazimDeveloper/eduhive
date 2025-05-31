@@ -49,42 +49,8 @@ if ($task_stats['total_tasks'] > 0) {
 </head>
 <body class="dashboard-body">
   <div class="dashboard-container">
-    <!-- Sidebar Navigation -->
-    <nav class="sidebar">
-      <div class="sidebar-header">
-        <div class="sidebar-logo">
-          <div class="logo-circle-small">
-            <div class="graduation-cap-small">🎓</div>
-            <div class="location-pin-small">📍</div>
-          </div>
-        </div>
-        <h2>EduHive</h2>
-      </div>
-      
-      <ul class="nav-menu">
-        <li class="nav-item active">
-          <a href="dashboard.php">Dashboard</a>
-        </li>
-        <li class="nav-item">
-          <a href="calendar.php">Calendar</a>
-        </li>
-        <li class="nav-item">
-          <a href="class_schedule.php">Class Schedules</a>
-        </li>
-        <li class="nav-item">
-          <a href="task.php">Task</a>
-        </li>
-        <li class="nav-item">
-          <a href="record_time.php">Record Time</a>
-        </li>
-        <li class="nav-item">
-          <a href="reward.php">Reward</a>
-        </li>
-        <li class="nav-item">
-          <a href="team_member.php">Team Members</a>
-        </li>
-      </ul>
-    </nav>
+    
+    <?php include_once 'sidebar.php'; ?>
 
     <!-- Main Content Area -->
     <main class="main-content">
