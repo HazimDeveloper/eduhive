@@ -75,7 +75,7 @@ function isActivePage($page_key, $current_page) {
         
         <!-- Logout option -->
         <li class="nav-item logout-item">
-            <a href="auth/logout.php" onclick="return confirm('Are you sure you want to logout?')">
+            <a href="logout.php" onclick="return confirm('Are you sure you want to logout?')">
                 <span class="menu-icon">🚪</span>
                 <span class="menu-label">Logout</span>
             </a>
