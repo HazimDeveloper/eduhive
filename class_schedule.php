@@ -233,13 +233,7 @@ function getClassColor($schedule) {
         </div>
       </div>
       
-      <!-- Schedule Actions -->
-      <div class="schedule-actions">
-        <button class="action-btn primary" id="addClassBtn">Add New Class</button>
-        <button class="action-btn secondary" id="exportBtn">Export Schedule</button>
-        <button class="action-btn secondary" id="printBtn">Print Schedule</button>
-        <button class="action-btn secondary" id="syncCalendarBtn">Sync to Calendar</button>
-      </div>
+
     </main>
   </div>
 
@@ -311,19 +305,10 @@ function getClassColor($schedule) {
     function initializeEventListeners() {
       const addClassModal = document.getElementById('addClassModal');
       const viewClassModal = document.getElementById('viewClassModal');
-      const addClassBtn = document.getElementById('addClassBtn');
       const updateBtn = document.getElementById('updateBtn');
-      const exportBtn = document.getElementById('exportBtn');
-      const printBtn = document.getElementById('printBtn');
-      const syncCalendarBtn = document.getElementById('syncCalendarBtn');
       const closeModals = document.querySelectorAll('.close');
       const cancelBtn = document.getElementById('cancelClass');
       const addClassForm = document.getElementById('addClassForm');
-
-      // Add class button
-      addClassBtn.addEventListener('click', () => {
-        addClassModal.style.display = 'block';
-      });
 
       // Update button
       updateBtn.addEventListener('click', () => {
@@ -332,17 +317,6 @@ function getClassColor($schedule) {
           location.reload();
         }, 1500);
       });
-
-      // Export button
-      exportBtn.addEventListener('click', exportSchedule);
-
-      // Print button
-      printBtn.addEventListener('click', () => {
-        window.print();
-      });
-
-      // Sync to calendar button
-      syncCalendarBtn.addEventListener('click', syncToCalendar);
 
       // Close modals
       closeModals.forEach(close => {
@@ -485,53 +459,7 @@ function getClassColor($schedule) {
       }
     }
 
-    function exportSchedule() {
-      const scheduleData = {
-        user: '<?php echo htmlspecialchars($user_name); ?>',
-        classes: []
-      };
-      
-      // Collect schedule data
-      document.querySelectorAll('.class-card').forEach(card => {
-        const code = card.querySelector('.class-code').textContent;
-        const mode = card.querySelector('.class-mode').textContent;
-        scheduleData.classes.push({ code, mode });
-      });
-      
-      // Create and download JSON file
-      const dataStr = JSON.stringify(scheduleData, null, 2);
-      const dataBlob = new Blob([dataStr], {type: 'application/json'});
-      const url = URL.createObjectURL(dataBlob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'class_schedule.json';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      
-      showNotification('Schedule exported successfully!', 'success');
-    }
 
-    function syncToCalendar() {
-      fetch('api/sync_schedules.php')
-        .then(response => response.json())
-        .then(data => {
-          if (data.success) {
-            showNotification(`${data.count} class schedules ready for calendar sync!`, 'success');
-            // Open calendar page
-            setTimeout(() => {
-              window.open('calendar.php', '_blank');
-            }, 1000);
-          } else {
-            showNotification('Failed to prepare schedule sync: ' + data.message, 'error');
-          }
-        })
-        .catch(error => {
-          console.error('Error syncing to calendar:', error);
-          showNotification('Error syncing to calendar', 'error');
-        });
-    }
 
     function showNotification(message, type = 'info') {
       const notification = document.createElement('div');
@@ -591,53 +519,5 @@ function getClassColor($schedule) {
       });
     });
   </script>
-
-  <style>
-    /* Additional styles for class details */
-    .class-detail-item {
-      margin: 12px 0;
-      padding: 10px 0;
-      border-bottom: 1px solid #f1f3f4;
-      font-size: 14px;
-    }
-
-    .class-detail-item:last-child {
-      border-bottom: none;
-    }
-
-    .class-detail-item strong {
-      color: #8B7355;
-      margin-right: 10px;
-    }
-
-    /* Notification styles */
-    .notification {
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    }
-
-    /* Print styles */
-    @media print {
-      .sidebar,
-      .schedule-actions,
-      .update-btn {
-        display: none !important;
-      }
-      
-      .schedule-main {
-        padding: 0;
-      }
-      
-      .schedule-container {
-        box-shadow: none;
-        border: 1px solid #ccc;
-      }
-      
-      .class-card {
-        background: #f8f9fa !important;
-        color: #333 !important;
-        border: 1px solid #ccc;
-      }
-    }
-  </style>
 </body>
 </html>

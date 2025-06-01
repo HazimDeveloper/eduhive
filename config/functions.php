@@ -376,4 +376,585 @@ function simpleDebug($data) {
     }
 }
 
+
+?>
+
+<?php
+// Additional functions to add to config/functions.php for class schedule support
+
+/**
+ * Get all class schedules for a user with course information
+ * @param int $user_id User ID
+ * @return array Class schedules data
+ */
+function getUserClassSchedules($user_id) {
+    $database = new Database();
+    
+    return $database->query(
+        "SELECT cs.*, c.name as course_name, c.code as course_code, c.color as course_color
+         FROM class_schedules cs 
+         LEFT JOIN courses c ON cs.course_id = c.id 
+         WHERE cs.user_id = :user_id 
+         ORDER BY 
+         FIELD(cs.day_of_week, 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'),
+         cs.start_time",
+        [':user_id' => $user_id]
+    ) ?: [];
+}
+
+/**
+ * Create a new class schedule
+ * @param int $user_id User ID
+ * @param array $schedule_data Schedule data
+ * @return int|false Schedule ID or false on error
+ */
+function createClassSchedule($user_id, $schedule_data) {
+    $database = new Database();
+    
+    $data = [
+        'user_id' => $user_id,
+        'class_code' => $schedule_data['class_code'],
+        'day_of_week' => $schedule_data['day_of_week'],
+        'start_time' => $schedule_data['start_time'],
+        'end_time' => $schedule_data['end_time'],
+        'location' => $schedule_data['location'] ?? '',
+        'mode' => $schedule_data['mode'] ?? 'physical',
+        'instructor' => $schedule_data['instructor'] ?? '',
+        'course_id' => $schedule_data['course_id'] ?? null
+    ];
+    
+    return $database->insert('class_schedules', $data);
+}
+
+/**
+ * Update class schedule
+ * @param int $schedule_id Schedule ID
+ * @param int $user_id User ID (for security)
+ * @param array $schedule_data Updated schedule data
+ * @return bool Success status
+ */
+function updateClassSchedule($schedule_id, $user_id, $schedule_data) {
+    $database = new Database();
+    
+    // Check if schedule belongs to user
+    $existing_schedule = $database->queryRow(
+        "SELECT * FROM class_schedules WHERE id = :id AND user_id = :user_id",
+        [':id' => $schedule_id, ':user_id' => $user_id]
+    );
+    
+    if (!$existing_schedule) {
+        return false;
+    }
+    
+    // Prepare update data (only include non-null values)
+    $data = array_filter([
+        'class_code' => $schedule_data['class_code'] ?? null,
+        'day_of_week' => $schedule_data['day_of_week'] ?? null,
+        'start_time' => $schedule_data['start_time'] ?? null,
+        'end_time' => $schedule_data['end_time'] ?? null,
+        'location' => $schedule_data['location'] ?? null,
+        'mode' => $schedule_data['mode'] ?? null,
+        'instructor' => $schedule_data['instructor'] ?? null,
+        'course_id' => $schedule_data['course_id'] ?? null
+    ], function($value) {
+        return $value !== null;
+    });
+    
+    $success = $database->update('class_schedules', $data, 'id = :id AND user_id = :user_id', [':id' => $schedule_id, ':user_id' => $user_id]);
+    
+    return $success > 0;
+}
+
+/**
+ * Delete class schedule
+ * @param int $schedule_id Schedule ID
+ * @param int $user_id User ID (for security)
+ * @return bool Success status
+ */
+function deleteClassSchedule($schedule_id, $user_id) {
+    $database = new Database();
+    
+    $success = $database->delete('class_schedules', 'id = :id AND user_id = :user_id', [':id' => $schedule_id, ':user_id' => $user_id]);
+    
+    return $success > 0;
+}
+
+/**
+ * Get class schedules for a specific day
+ * @param int $user_id User ID
+ * @param string $day_of_week Day of week (monday, tuesday, etc.)
+ * @return array Class schedules for the day
+ */
+function getClassSchedulesForDay($user_id, $day_of_week) {
+    $database = new Database();
+    
+    return $database->query(
+        "SELECT cs.*, c.name as course_name, c.code as course_code 
+         FROM class_schedules cs 
+         LEFT JOIN courses c ON cs.course_id = c.id 
+         WHERE cs.user_id = :user_id AND cs.day_of_week = :day_of_week 
+         ORDER BY cs.start_time",
+        [':user_id' => $user_id, ':day_of_week' => $day_of_week]
+    ) ?: [];
+}
+
+/**
+ * Check if there's a time conflict with existing schedules
+ * @param int $user_id User ID
+ * @param string $day_of_week Day of week
+ * @param string $start_time Start time
+ * @param string $end_time End time
+ * @param int|null $exclude_id Schedule ID to exclude from check
+ * @return bool True if conflict exists
+ */
+function hasScheduleConflict($user_id, $day_of_week, $start_time, $end_time, $exclude_id = null) {
+    $database = new Database();
+    
+    $query = "SELECT id FROM class_schedules 
+              WHERE user_id = :user_id 
+              AND day_of_week = :day_of_week";
+    
+    $params = [
+        ':user_id' => $user_id,
+        ':day_of_week' => $day_of_week,
+        ':start_time' => $start_time,
+        ':end_time' => $end_time
+    ];
+    
+    if ($exclude_id) {
+        $query .= " AND id != :exclude_id";
+        $params[':exclude_id'] = $exclude_id;
+    }
+    
+    $query .= " AND (
+                    (start_time <= :start_time AND end_time > :start_time) OR
+                    (start_time < :end_time AND end_time >= :end_time) OR
+                    (start_time >= :start_time AND end_time <= :end_time)
+                )";
+    
+    $result = $database->queryRow($query, $params);
+    
+    return !empty($result);
+}
+
+/**
+ * Get today's class schedule
+ * @param int $user_id User ID
+ * @return array Today's classes
+ */
+function getTodayClasses($user_id) {
+    $today = strtolower(date('l')); // Get current day name in lowercase
+    return getClassSchedulesForDay($user_id, $today);
+}
+
+/**
+ * Get next upcoming class
+ * @param int $user_id User ID
+ * @return array|null Next class or null if none
+ */
+function getNextClass($user_id) {
+    $database = new Database();
+    $current_time = date('H:i:s');
+    $current_day = strtolower(date('l'));
+    
+    // First, try to find a class today after current time
+    $query = "SELECT cs.*, c.name as course_name, c.code as course_code 
+              FROM class_schedules cs 
+              LEFT JOIN courses c ON cs.course_id = c.id 
+              WHERE cs.user_id = :user_id 
+              AND cs.day_of_week = :current_day 
+              AND cs.start_time > :current_time 
+              ORDER BY cs.start_time ASC 
+              LIMIT 1";
+    
+    $next_class = $database->queryRow($query, [
+        ':user_id' => $user_id,
+        ':current_day' => $current_day,
+        ':current_time' => $current_time
+    ]);
+    
+    if ($next_class) {
+        return $next_class;
+    }
+    
+    // If no class today, find next class in upcoming days
+    $query = "SELECT cs.*, c.name as course_name, c.code as course_code 
+              FROM class_schedules cs 
+              LEFT JOIN courses c ON cs.course_id = c.id 
+              WHERE cs.user_id = :user_id 
+              ORDER BY 
+              FIELD(cs.day_of_week, 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'),
+              cs.start_time ASC 
+              LIMIT 1";
+    
+    return $database->queryRow($query, [':user_id' => $user_id]);
+}
+
+/**
+ * Format time for display
+ * @param string $time Time in 24-hour format
+ * @return string Formatted time
+ */
+function formatClassTime($time) {
+    if (empty($time)) return '';
+    
+    try {
+        $datetime = new DateTime($time);
+        return $datetime->format('g:i A'); // 12-hour format with AM/PM
+    } catch (Exception $e) {
+        return $time; // Return original if formatting fails
+    }
+}
+
+/**
+ * Get week schedule summary
+ * @param int $user_id User ID
+ * @return array Week schedule organized by days
+ */
+function getWeekSchedule($user_id) {
+    $days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    $week_schedule = [];
+    
+    foreach ($days as $day) {
+        $week_schedule[$day] = getClassSchedulesForDay($user_id, $day);
+    }
+    
+    return $week_schedule;
+}
+?>
+
+<?php
+// Additional functions to add to config/functions.php for enhanced task management
+
+/**
+ * Get task statistics for dashboard
+ * @param int $user_id User ID
+ * @return array Task statistics
+ */
+function getTaskStatistics($user_id) {
+    $database = new Database();
+    
+    $query = "SELECT 
+        COUNT(*) as total_tasks,
+        SUM(CASE WHEN status = 'todo' THEN 1 ELSE 0 END) as todo_tasks,
+        SUM(CASE WHEN status = 'progress' THEN 1 ELSE 0 END) as progress_tasks,
+        SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as done_tasks
+        FROM tasks WHERE user_id = :user_id";
+    
+    $result = $database->queryRow($query, [':user_id' => $user_id]);
+    
+    return $result ?: [
+        'total_tasks' => 0,
+        'todo_tasks' => 0,
+        'progress_tasks' => 0,
+        'done_tasks' => 0
+    ];
+}
+
+/**
+ * Create a new task with enhanced data
+ * @param int $user_id User ID
+ * @param array $task_data Enhanced task data
+ * @return int|false Task ID or false on error
+ */
+function createEnhancedTask($user_id, $task_data) {
+    $database = new Database();
+    
+    $data = [
+        'user_id' => $user_id,
+        'title' => $task_data['title'],
+        'description' => $task_data['description'] ?? '',
+        'status' => $task_data['status'] ?? 'todo',
+        'priority' => $task_data['priority'] ?? 'medium',
+        'due_date' => $task_data['due_date'] ?? null,
+        'start_time' => $task_data['start_time'] ?? null,
+        'end_time' => $task_data['end_time'] ?? null,
+        'course_id' => $task_data['course_id'] ?? null,
+        'reminder_type' => $task_data['reminder_type'] ?? null
+    ];
+    
+    return $database->insert('tasks', $data);
+}
+
+/**
+ * Get tasks for a specific course
+ * @param int $user_id User ID
+ * @param int $course_id Course ID
+ * @param string $status Filter by status (optional)
+ * @return array Tasks for the course
+ */
+function getTasksForCourse($user_id, $course_id, $status = null) {
+    $database = new Database();
+    
+    $query = "SELECT t.*, c.name as course_name 
+              FROM tasks t 
+              LEFT JOIN courses c ON t.course_id = c.id 
+              WHERE t.user_id = :user_id AND t.course_id = :course_id";
+    
+    $params = [':user_id' => $user_id, ':course_id' => $course_id];
+    
+    if ($status) {
+        $query .= " AND t.status = :status";
+        $params[':status'] = $status;
+    }
+    
+    $query .= " ORDER BY t.due_date ASC, t.created_at DESC";
+    
+    return $database->query($query, $params) ?: [];
+}
+
+/**
+ * Get upcoming tasks (due within next 7 days)
+ * @param int $user_id User ID
+ * @return array Upcoming tasks
+ */
+function getUpcomingTasks($user_id) {
+    $database = new Database();
+    
+    $query = "SELECT t.*, c.name as course_name 
+              FROM tasks t 
+              LEFT JOIN courses c ON t.course_id = c.id 
+              WHERE t.user_id = :user_id 
+              AND t.status != 'done' 
+              AND t.due_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY)
+              ORDER BY t.due_date ASC, t.priority DESC";
+    
+    return $database->query($query, [':user_id' => $user_id]) ?: [];
+}
+
+/**
+ * Get overdue tasks
+ * @param int $user_id User ID
+ * @return array Overdue tasks
+ */
+function getOverdueTasks($user_id) {
+    $database = new Database();
+    
+    $query = "SELECT t.*, c.name as course_name 
+              FROM tasks t 
+              LEFT JOIN courses c ON t.course_id = c.id 
+              WHERE t.user_id = :user_id 
+              AND t.status != 'done' 
+              AND t.due_date < CURDATE()
+              ORDER BY t.due_date ASC";
+    
+    return $database->query($query, [':user_id' => $user_id]) ?: [];
+}
+
+/**
+ * Get task counts for each course
+ * @param int $user_id User ID
+ * @return array Course task counts
+ */
+function getCourseTaskCounts($user_id) {
+    $database = new Database();
+    
+    $query = "SELECT c.id, c.name, c.code,
+              COUNT(t.id) as total_tasks,
+              SUM(CASE WHEN t.status = 'todo' THEN 1 ELSE 0 END) as pending_tasks,
+              SUM(CASE WHEN t.status = 'progress' THEN 1 ELSE 0 END) as progress_tasks,
+              SUM(CASE WHEN t.status = 'done' THEN 1 ELSE 0 END) as completed_tasks
+              FROM courses c
+              LEFT JOIN tasks t ON c.id = t.course_id
+              WHERE c.user_id = :user_id
+              GROUP BY c.id, c.name, c.code
+              ORDER BY c.name";
+    
+    return $database->query($query, [':user_id' => $user_id]) ?: [];
+}
+
+/**
+ * Update task status with automatic completion tracking
+ * @param int $task_id Task ID
+ * @param int $user_id User ID (for security)
+ * @param string $new_status New status
+ * @return bool Success status
+ */
+function updateTaskStatus($task_id, $user_id, $new_status) {
+    $database = new Database();
+    
+    // Check if task belongs to user
+    $existing_task = $database->queryRow(
+        "SELECT * FROM tasks WHERE id = :id AND user_id = :user_id",
+        [':id' => $task_id, ':user_id' => $user_id]
+    );
+    
+    if (!$existing_task) {
+        return false;
+    }
+    
+    $update_data = ['status' => $new_status];
+    
+    // Add completion timestamp if marking as done
+    if ($new_status === 'done' && $existing_task['status'] !== 'done') {
+        $update_data['completed_at'] = date('Y-m-d H:i:s');
+    } elseif ($new_status !== 'done' && $existing_task['status'] === 'done') {
+        $update_data['completed_at'] = null;
+    }
+    
+    $success = $database->update('tasks', $update_data, 'id = :id AND user_id = :user_id', [
+        ':id' => $task_id, 
+        ':user_id' => $user_id
+    ]);
+    
+    return $success > 0;
+}
+
+/**
+ * Get tasks due today
+ * @param int $user_id User ID
+ * @return array Today's tasks
+ */
+function getTodayTasks($user_id) {
+    $database = new Database();
+    
+    $query = "SELECT t.*, c.name as course_name 
+              FROM tasks t 
+              LEFT JOIN courses c ON t.course_id = c.id 
+              WHERE t.user_id = :user_id 
+              AND DATE(t.due_date) = CURDATE()
+              AND t.status != 'done'
+              ORDER BY t.start_time ASC, t.priority DESC";
+    
+    return $database->query($query, [':user_id' => $user_id]) ?: [];
+}
+
+/**
+ * Search tasks by title or description
+ * @param int $user_id User ID
+ * @param string $search_term Search term
+ * @return array Matching tasks
+ */
+function searchTasks($user_id, $search_term) {
+    $database = new Database();
+    
+    $query = "SELECT t.*, c.name as course_name 
+              FROM tasks t 
+              LEFT JOIN courses c ON t.course_id = c.id 
+              WHERE t.user_id = :user_id 
+              AND (t.title LIKE :search OR t.description LIKE :search)
+              ORDER BY t.due_date ASC, t.created_at DESC";
+    
+    $search_param = '%' . $search_term . '%';
+    
+    return $database->query($query, [
+        ':user_id' => $user_id,
+        ':search' => $search_param
+    ]) ?: [];
+}
+
+/**
+ * Get task completion rate for a date range
+ * @param int $user_id User ID
+ * @param string $start_date Start date
+ * @param string $end_date End date
+ * @return array Completion statistics
+ */
+function getTaskCompletionRate($user_id, $start_date, $end_date) {
+    $database = new Database();
+    
+    $query = "SELECT 
+              COUNT(*) as total_tasks,
+              SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as completed_tasks
+              FROM tasks 
+              WHERE user_id = :user_id 
+              AND due_date BETWEEN :start_date AND :end_date";
+    
+    $result = $database->queryRow($query, [
+        ':user_id' => $user_id,
+        ':start_date' => $start_date,
+        ':end_date' => $end_date
+    ]);
+    
+    if ($result && $result['total_tasks'] > 0) {
+        $result['completion_rate'] = round(($result['completed_tasks'] / $result['total_tasks']) * 100, 2);
+    } else {
+        $result['completion_rate'] = 0;
+    }
+    
+    return $result;
+}
+
+/**
+ * Get next task to work on (smart prioritization)
+ * @param int $user_id User ID
+ * @return array|null Next recommended task
+ */
+function getNextRecommendedTask($user_id) {
+    $database = new Database();
+    
+    // Priority: overdue tasks first, then due today, then by priority and due date
+    $query = "SELECT t.*, c.name as course_name,
+              CASE 
+                WHEN t.due_date < CURDATE() THEN 1
+                WHEN DATE(t.due_date) = CURDATE() THEN 2
+                WHEN t.due_date <= DATE_ADD(CURDATE(), INTERVAL 3 DAY) THEN 3
+                ELSE 4
+              END as urgency_score
+              FROM tasks t 
+              LEFT JOIN courses c ON t.course_id = c.id 
+              WHERE t.user_id = :user_id 
+              AND t.status IN ('todo', 'progress')
+              ORDER BY urgency_score ASC, 
+                       FIELD(t.priority, 'high', 'medium', 'low') ASC,
+                       t.due_date ASC
+              LIMIT 1";
+    
+    return $database->queryRow($query, [':user_id' => $user_id]);
+}
+
+/**
+ * Format task time for display
+ * @param string $time Time string
+ * @return string Formatted time
+ */
+function formatTaskTime($time) {
+    if (empty($time)) return '';
+    
+    try {
+        return date('g:i A', strtotime($time));
+    } catch (Exception $e) {
+        return $time;
+    }
+}
+
+/**
+ * Get task priority color
+ * @param string $priority Priority level
+ * @return string CSS color class
+ */
+function getTaskPriorityColor($priority) {
+    switch (strtolower($priority)) {
+        case 'high':
+            return '#dc3545'; // Red
+        case 'medium':
+            return '#ffc107'; // Yellow
+        case 'low':
+            return '#28a745'; // Green
+        default:
+            return '#6c757d'; // Gray
+    }
+}
+
+/**
+ * Calculate task duration in hours
+ * @param string $start_time Start time
+ * @param string $end_time End time
+ * @return float Duration in hours
+ */
+function calculateTaskDuration($start_time, $end_time) {
+    if (empty($start_time) || empty($end_time)) {
+        return 0;
+    }
+    
+    try {
+        $start = new DateTime($start_time);
+        $end = new DateTime($end_time);
+        $interval = $start->diff($end);
+        
+        return $interval->h + ($interval->i / 60);
+    } catch (Exception $e) {
+        return 0;
+    }
+}
 ?>

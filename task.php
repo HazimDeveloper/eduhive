@@ -1,31 +1,59 @@
 <?php
 require_once 'config/database.php';
+require_once 'config/session.php';
+require_once 'config/functions.php';
 
+// Ensure user is logged in
 requireLogin();
 
-$database = new Database();
-$db = $database->getConnection();
+// Get current user data
 $user_id = getCurrentUserId();
-$user_name = $_SESSION['user_name'];
+$user_name = getCurrentUserName() ?: 'User';
 
-// Get task statistics
-$task_stats_query = "SELECT 
-    COUNT(*) as total_tasks,
-    SUM(CASE WHEN status = 'todo' THEN 1 ELSE 0 END) as todo_tasks,
-    SUM(CASE WHEN status = 'progress' THEN 1 ELSE 0 END) as progress_tasks,
-    SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as done_tasks
-    FROM tasks WHERE user_id = :user_id";
-$stmt = $db->prepare($task_stats_query);
-$stmt->bindParam(':user_id', $user_id);
-$stmt->execute();
-$task_stats = $stmt->fetch(PDO::FETCH_ASSOC);
+// Initialize variables
+$task_stats = [];
+$courses = [];
+$error_message = '';
 
-// Get courses
-$courses_query = "SELECT * FROM courses WHERE user_id = :user_id ORDER BY name";
-$stmt = $db->prepare($courses_query);
-$stmt->bindParam(':user_id', $user_id);
-$stmt->execute();
-$courses = $stmt->fetchAll(PDO::FETCH_ASSOC);
+try {
+    // Get task statistics
+    $database = new Database();
+    $task_stats_query = "SELECT 
+        COUNT(*) as total_tasks,
+        SUM(CASE WHEN status = 'todo' THEN 1 ELSE 0 END) as todo_tasks,
+        SUM(CASE WHEN status = 'progress' THEN 1 ELSE 0 END) as progress_tasks,
+        SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as done_tasks
+        FROM tasks WHERE user_id = :user_id";
+    
+    $task_stats = $database->queryRow($task_stats_query, [':user_id' => $user_id]);
+    
+    // Get courses with task counts
+    $courses = getUserCourses($user_id);
+    
+    // Get task counts for each course
+    foreach ($courses as &$course) {
+        $course_tasks_query = "SELECT COUNT(*) as task_count FROM tasks WHERE user_id = :user_id AND course_id = :course_id";
+        $course_task_count = $database->queryRow($course_tasks_query, [':user_id' => $user_id, ':course_id' => $course['id']]);
+        $course['task_count'] = $course_task_count['task_count'] ?? 0;
+    }
+    
+} catch (Exception $e) {
+    error_log("Task page error for user $user_id: " . $e->getMessage());
+    $error_message = "Unable to load task data.";
+    
+    // Default values
+    $task_stats = [
+        'total_tasks' => 0,
+        'todo_tasks' => 0,
+        'progress_tasks' => 0,
+        'done_tasks' => 0
+    ];
+}
+
+// Calculate started counts
+$todo_started = $task_stats['todo_tasks'];
+$progress_started = $task_stats['progress_tasks'];
+$done_started = $task_stats['done_tasks'];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -34,7 +62,249 @@ $courses = $stmt->fetchAll(PDO::FETCH_ASSOC);
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>EduHive - My Tasks</title>
   <link rel="stylesheet" href="style.css">
-  <link rel="stylesheet" href="tasks.css">
+  <style>
+    .task-main {
+      flex: 1;
+      background: #f8f9fa;
+      overflow-y: auto;
+      padding: 40px;
+    }
+
+    .task-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 40px;
+    }
+
+    .task-title-section {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .task-title-section h1 {
+      font-size: 48px;
+      font-weight: 400;
+      color: #333;
+      margin: 0;
+    }
+
+    .task-icon {
+      width: 60px;
+      height: 60px;
+      background: #8B7355;
+      border-radius: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 30px;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .user-name {
+      font-size: 16px;
+      color: #666;
+      font-weight: 400;
+    }
+
+    .add-course-btn,
+    .add-task-btn {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 25px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-size: 14px;
+      text-decoration: none;
+      display: inline-block;
+    }
+
+    .add-course-btn {
+      background: #D4B5A0;
+      color: #333;
+    }
+
+    .add-task-btn {
+      background: #8B7355;
+      color: white;
+    }
+
+    .add-course-btn:hover,
+    .add-task-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+
+    /* Task Status Cards */
+    .task-status-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 30px;
+      margin-bottom: 40px;
+      max-width: 800px;
+    }
+
+    .status-card {
+      background: #D4B5A0;
+      border-radius: 20px;
+      padding: 30px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      min-height: 120px;
+    }
+
+    .status-card.done-card {
+      grid-column: 1 / -1;
+      max-width: 400px;
+    }
+
+    .status-icon {
+      width: 60px;
+      height: 60px;
+      background: rgba(0, 0, 0, 0.1);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      color: #333;
+    }
+
+    .status-content h3 {
+      font-size: 24px;
+      font-weight: 500;
+      color: #333;
+      margin: 0 0 8px 0;
+    }
+
+    .status-content p {
+      font-size: 16px;
+      color: #333;
+      margin: 0;
+      font-weight: 400;
+    }
+
+    /* Course Cards */
+    .course-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 30px;
+      max-width: 1000px;
+    }
+
+    .course-card {
+      border-radius: 20px;
+      padding: 40px 30px;
+      text-align: center;
+      min-height: 200px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+    }
+
+    .course-card.fyp-card {
+      background: #A6845C;
+      color: white;
+    }
+
+    .course-card.programming-card {
+      background: #8B8B8B;
+      color: white;
+    }
+
+    .course-card.harta-card {
+      background: #E6A885;
+      color: #333;
+    }
+
+    .course-card h3 {
+      font-size: 24px;
+      font-weight: 500;
+      margin: 0 0 20px 0;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .task-count {
+      font-size: 16px;
+      margin: 0 0 20px 0;
+      opacity: 0.9;
+    }
+
+    .add-task-course-btn {
+      padding: 10px 20px;
+      background: rgba(255, 255, 255, 0.2);
+      color: inherit;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      border-radius: 20px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      text-decoration: none;
+      display: inline-block;
+    }
+
+    .harta-card .add-task-course-btn {
+      background: rgba(0, 0, 0, 0.1);
+      border-color: rgba(0, 0, 0, 0.2);
+    }
+
+    .add-task-course-btn:hover {
+      background: rgba(255, 255, 255, 0.3);
+      transform: translateY(-2px);
+    }
+
+    .harta-card .add-task-course-btn:hover {
+      background: rgba(0, 0, 0, 0.2);
+    }
+
+    /* Responsive Design */
+    @media (max-width: 1024px) {
+      .task-main {
+        padding: 30px;
+      }
+      
+      .task-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 20px;
+      }
+      
+      .course-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (max-width: 768px) {
+      .task-main {
+        padding: 20px;
+      }
+      
+      .task-title-section h1 {
+        font-size: 36px;
+      }
+      
+      .task-status-grid,
+      .course-grid {
+        grid-template-columns: 1fr;
+      }
+      
+      .header-actions {
+        width: 100%;
+        justify-content: space-between;
+      }
+    }
+  </style>
 </head>
 <body class="dashboard-body">
   <div class="dashboard-container">
@@ -84,10 +354,16 @@ $courses = $stmt->fetchAll(PDO::FETCH_ASSOC);
         </div>
         <div class="header-actions">
           <span class="user-name"><?php echo htmlspecialchars($user_name); ?> ></span>
-          <button class="add-course-btn" id="addCourseBtn">+ Add Course</button>
-          <button class="add-task-btn" id="addTaskBtn">+ Add Task</button>
+          <a href="create_course.php" class="add-course-btn">+ Add Course</a>
+          <a href="create_task.php" class="add-task-btn">+ Add Task</a>
         </div>
       </div>
+      
+      <?php if ($error_message): ?>
+      <div style="background: #f8d7da; color: #721c24; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #f5c6cb;">
+        <?php echo htmlspecialchars($error_message); ?>
+      </div>
+      <?php endif; ?>
       
       <!-- Task Status Cards -->
       <div class="task-status-grid">
@@ -95,7 +371,7 @@ $courses = $stmt->fetchAll(PDO::FETCH_ASSOC);
           <div class="status-icon">⏰</div>
           <div class="status-content">
             <h3>To Do</h3>
-            <p id="todoCount"><?php echo $task_stats['todo_tasks']; ?> task<?php echo $task_stats['todo_tasks'] != 1 ? 's' : ''; ?> now</p>
+            <p><?php echo $task_stats['todo_tasks']; ?> task<?php echo $task_stats['todo_tasks'] != 1 ? 's' : ''; ?> now • <?php echo $todo_started; ?> started</p>
           </div>
         </div>
         
@@ -103,7 +379,7 @@ $courses = $stmt->fetchAll(PDO::FETCH_ASSOC);
           <div class="status-icon">⚡</div>
           <div class="status-content">
             <h3>In Progress</h3>
-            <p id="progressCount"><?php echo $task_stats['progress_tasks']; ?> task<?php echo $task_stats['progress_tasks'] != 1 ? 's' : ''; ?> now</p>
+            <p><?php echo $task_stats['progress_tasks']; ?> task<?php echo $task_stats['progress_tasks'] != 1 ? 's' : ''; ?> now • <?php echo $progress_started; ?> started</p>
           </div>
         </div>
         
@@ -111,490 +387,66 @@ $courses = $stmt->fetchAll(PDO::FETCH_ASSOC);
           <div class="status-icon">✅</div>
           <div class="status-content">
             <h3>Done</h3>
-            <p id="doneCount"><?php echo $task_stats['done_tasks']; ?> task<?php echo $task_stats['done_tasks'] != 1 ? 's' : ''; ?> now</p>
+            <p><?php echo $task_stats['done_tasks']; ?> task<?php echo $task_stats['done_tasks'] != 1 ? 's' : ''; ?> now • <?php echo $done_started; ?> started</p>
           </div>
         </div>
       </div>
       
       <!-- Course Cards -->
       <div class="course-grid">
-        <?php foreach ($courses as $course): ?>
-        <div class="course-card <?php echo strtolower($course['name']); ?>-card">
+        <?php 
+        // Default courses if none exist
+        $default_courses = [
+          ['name' => 'FYP', 'task_count' => 0, 'class' => 'fyp-card'],
+          ['name' => 'PROGRAMMING', 'task_count' => 0, 'class' => 'programming-card'],
+          ['name' => 'HARTA', 'task_count' => 0, 'class' => 'harta-card']
+        ];
+        
+        $display_courses = [];
+        if (empty($courses)) {
+            $display_courses = $default_courses;
+        } else {
+            // Map existing courses to display format
+            foreach ($courses as $course) {
+                $course_name = strtoupper($course['name']);
+                $class_name = 'fyp-card'; // default
+                
+                if (strpos($course_name, 'PROGRAMMING') !== false || strpos($course_name, 'TP') !== false) {
+                    $class_name = 'programming-card';
+                } elseif (strpos($course_name, 'HARTA') !== false) {
+                    $class_name = 'harta-card';
+                }
+                
+                $display_courses[] = [
+                    'name' => $course_name,
+                    'task_count' => $course['task_count'],
+                    'class' => $class_name,
+                    'id' => $course['id']
+                ];
+            }
+            
+            // Fill up to 3 courses
+            while (count($display_courses) < 3) {
+                $display_courses[] = $default_courses[count($display_courses)];
+            }
+        }
+        
+        foreach (array_slice($display_courses, 0, 3) as $course): 
+        ?>
+        <div class="course-card <?php echo $course['class']; ?>">
           <h3><?php echo htmlspecialchars($course['name']); ?></h3>
-          <p class="task-count" id="taskCount<?php echo $course['id']; ?>">Loading...</p>
-          <button class="add-task-course-btn" data-course="<?php echo htmlspecialchars($course['name']); ?>">+ Add Task</button>
+          <p class="task-count">
+            <?php if ($course['task_count'] > 0): ?>
+              <?php echo $course['task_count']; ?> task<?php echo $course['task_count'] != 1 ? 's' : ''; ?> pending
+            <?php else: ?>
+              No task
+            <?php endif; ?>
+          </p>
+          <a href="create_task.php<?php echo isset($course['id']) ? '?course_id=' . $course['id'] : ''; ?>" class="add-task-course-btn">+ Add Task</a>
         </div>
         <?php endforeach; ?>
       </div>
-      
-      <!-- Task List Section -->
-      <div class="task-lists">
-        <div class="task-column">
-          <h4>To Do Tasks</h4>
-          <div class="task-list" id="todoTasks">
-            <!-- Tasks will be loaded here via JavaScript -->
-          </div>
-        </div>
-        
-        <div class="task-column">
-          <h4>In Progress Tasks</h4>
-          <div class="task-list" id="progressTasks">
-            <!-- Tasks will be loaded here via JavaScript -->
-          </div>
-        </div>
-        
-        <div class="task-column">
-          <h4>Completed Tasks</h4>
-          <div class="task-list" id="completedTasks">
-            <!-- Tasks will be loaded here via JavaScript -->
-          </div>
-        </div>
-      </div>
     </main>
   </div>
-
-  <!-- Add Task Modal -->
-  <div id="addTaskModal" class="modal" style="display: none;">
-    <div class="modal-content">
-      <span class="close">&times;</span>
-      <h3>Add New Task</h3>
-      <form id="addTaskForm">
-        <input type="text" id="taskTitle" name="title" placeholder="Task Title" required>
-        <textarea id="taskDescription" name="description" placeholder="Task Description"></textarea>
-        <select id="taskCourse" name="course" required>
-          <option value="">Select Course</option>
-          <?php foreach ($courses as $course): ?>
-          <option value="<?php echo htmlspecialchars($course['name']); ?>"><?php echo htmlspecialchars($course['name']); ?></option>
-          <?php endforeach; ?>
-        </select>
-        <select id="taskPriority" name="priority" required>
-          <option value="">Select Priority</option>
-          <option value="low">Low</option>
-          <option value="medium">Medium</option>
-          <option value="high">High</option>
-        </select>
-        <input type="date" id="taskDueDate" name="due_date" required>
-        <div class="form-buttons">
-          <button type="submit">Add Task</button>
-          <button type="button" id="cancelTask">Cancel</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Add Course Modal -->
-  <div id="addCourseModal" class="modal" style="display: none;">
-    <div class="modal-content">
-      <span class="close">&times;</span>
-      <h3>Add New Course</h3>
-      <form id="addCourseForm">
-        <input type="text" id="courseName" name="name" placeholder="Course Name" required>
-        <input type="text" id="courseCode" name="code" placeholder="Course Code" required>
-        <textarea id="courseDescription" name="description" placeholder="Course Description"></textarea>
-        <select id="courseColor" name="color" required>
-          <option value="">Select Color Theme</option>
-          <option value="brown">Brown</option>
-          <option value="blue">Blue</option>
-          <option value="green">Green</option>
-          <option value="orange">Orange</option>
-          <option value="purple">Purple</option>
-        </select>
-        <div class="form-buttons">
-          <button type="submit">Add Course</button>
-          <button type="button" id="cancelCourse">Cancel</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <script>
-    let tasks = [];
-    let courses = <?php echo json_encode($courses); ?>;
-
-    document.addEventListener('DOMContentLoaded', function() {
-      initializeEventListeners();
-      loadTasks();
-      updateCourseTaskCounts();
-    });
-
-    function initializeEventListeners() {
-      // Modal controls
-      const taskModal = document.getElementById('addTaskModal');
-      const courseModal = document.getElementById('addCourseModal');
-      const addTaskBtn = document.getElementById('addTaskBtn');
-      const addCourseBtn = document.getElementById('addCourseBtn');
-      const closeModals = document.querySelectorAll('.close');
-      const cancelBtns = document.querySelectorAll('#cancelTask, #cancelCourse');
-
-      // Add task button
-      addTaskBtn.addEventListener('click', () => {
-        taskModal.style.display = 'block';
-      });
-
-      // Add course button
-      addCourseBtn.addEventListener('click', () => {
-        courseModal.style.display = 'block';
-      });
-
-      // Course-specific add task buttons
-      document.querySelectorAll('.add-task-course-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-          const courseName = e.target.getAttribute('data-course');
-          document.getElementById('taskCourse').value = courseName;
-          taskModal.style.display = 'block';
-        });
-      });
-
-      // Close modals
-      closeModals.forEach(close => {
-        close.addEventListener('click', () => {
-          taskModal.style.display = 'none';
-          courseModal.style.display = 'none';
-        });
-      });
-
-      cancelBtns.forEach(cancel => {
-        cancel.addEventListener('click', () => {
-          taskModal.style.display = 'none';
-          courseModal.style.display = 'none';
-        });
-      });
-
-      // Close modal on outside click
-      window.addEventListener('click', (event) => {
-        if (event.target === taskModal) {
-          taskModal.style.display = 'none';
-        }
-        if (event.target === courseModal) {
-          courseModal.style.display = 'none';
-        }
-      });
-
-      // Form submissions
-      document.getElementById('addTaskForm').addEventListener('submit', handleAddTask);
-      document.getElementById('addCourseForm').addEventListener('submit', handleAddCourse);
-    }
-
-    function loadTasks() {
-      fetch('api/tasks.php')
-        .then(response => response.json())
-        .then(data => {
-          if (data.success) {
-            tasks = data.data;
-            renderTasks();
-            updateTaskCounts();
-          } else {
-            showNotification('Failed to load tasks: ' + data.message, 'error');
-          }
-        })
-        .catch(error => {
-          console.error('Error loading tasks:', error);
-          showNotification('Error loading tasks', 'error');
-        });
-    }
-
-    function renderTasks() {
-      const todoList = document.getElementById('todoTasks');
-      const progressList = document.getElementById('progressTasks');
-      const completedList = document.getElementById('completedTasks');
-
-      todoList.innerHTML = '';
-      progressList.innerHTML = '';
-      completedList.innerHTML = '';
-
-      if (tasks.length === 0) {
-        todoList.innerHTML = '<div class="no-tasks">No tasks yet. Click "Add Task" to get started!</div>';
-        return;
-      }
-
-      tasks.forEach(task => {
-        const taskElement = createTaskElement(task);
-        
-        if (task.status === 'todo') {
-          todoList.appendChild(taskElement);
-        } else if (task.status === 'progress') {
-          progressList.appendChild(taskElement);
-        } else if (task.status === 'done') {
-          completedList.appendChild(taskElement);
-        }
-      });
-    }
-
-    function createTaskElement(task) {
-      const taskDiv = document.createElement('div');
-      taskDiv.className = `task-item ${task.status === 'done' ? 'completed' : ''}`;
-      taskDiv.setAttribute('data-priority', task.priority);
-      
-      taskDiv.innerHTML = `
-        <input type="checkbox" class="task-checkbox" ${task.status === 'done' ? 'checked' : ''} 
-               onchange="updateTaskStatus(${task.id}, this.checked)">
-        <div class="task-details">
-          <h5>${escapeHtml(task.title)}</h5>
-          <p>${task.course_name || 'No Course'} - Due: ${formatDate(task.due_date)}</p>
-        </div>
-        <div class="task-actions">
-          ${task.status !== 'done' ? `<button class="edit-task" onclick="editTask(${task.id})">✏️</button>` : ''}
-          <button class="delete-task" onclick="deleteTask(${task.id})">🗑️</button>
-        </div>
-      `;
-      
-      return taskDiv;
-    }
-
-    function handleAddTask(e) {
-      e.preventDefault();
-      
-      const formData = new FormData(e.target);
-      
-      fetch('api/tasks.php', {
-        method: 'POST',
-        body: formData
-      })
-      .then(response => response.json())
-      .then(data => {
-        if (data.success) {
-          showNotification('Task added successfully!', 'success');
-          document.getElementById('addTaskModal').style.display = 'none';
-          e.target.reset();
-          loadTasks();
-        } else {
-          showNotification('Failed to add task: ' + data.message, 'error');
-        }
-      })
-      .catch(error => {
-        console.error('Error adding task:', error);
-        showNotification('Error adding task', 'error');
-      });
-    }
-
-    function handleAddCourse(e) {
-      e.preventDefault();
-      
-      const formData = new FormData(e.target);
-      
-      fetch('api/courses.php', {
-        method: 'POST',
-        body: formData
-      })
-      .then(response => response.json())
-      .then(data => {
-        if (data.success) {
-          showNotification('Course added successfully!', 'success');
-          document.getElementById('addCourseModal').style.display = 'none';
-          e.target.reset();
-          location.reload(); // Reload to show new course
-        } else {
-          showNotification('Failed to add course: ' + data.message, 'error');
-        }
-      })
-      .catch(error => {
-        console.error('Error adding course:', error);
-        showNotification('Error adding course', 'error');
-      });
-    }
-
-    function updateTaskStatus(taskId, isCompleted) {
-      const status = isCompleted ? 'done' : 'todo';
-      
-      fetch('api/tasks.php', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: `task_id=${taskId}&status=${status}`
-      })
-      .then(response => response.json())
-      .then(data => {
-        if (data.success) {
-          loadTasks(); // Reload tasks to update display
-          showNotification('Task updated successfully!', 'success');
-        } else {
-          showNotification('Failed to update task: ' + data.message, 'error');
-          // Revert checkbox state
-          const checkbox = document.querySelector(`input[onchange="updateTaskStatus(${taskId}, this.checked)"]`);
-          if (checkbox) checkbox.checked = !isCompleted;
-        }
-      })
-      .catch(error => {
-        console.error('Error updating task:', error);
-        showNotification('Error updating task', 'error');
-      });
-    }
-
-    function deleteTask(taskId) {
-      if (!confirm('Are you sure you want to delete this task?')) {
-        return;
-      }
-      
-      fetch('api/tasks.php', {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: `task_id=${taskId}`
-      })
-      .then(response => response.json())
-      .then(data => {
-        if (data.success) {
-          showNotification('Task deleted successfully!', 'success');
-          loadTasks();
-        } else {
-          showNotification('Failed to delete task: ' + data.message, 'error');
-        }
-      })
-      .catch(error => {
-        console.error('Error deleting task:', error);
-        showNotification('Error deleting task', 'error');
-      });
-    }
-
-    function editTask(taskId) {
-      const task = tasks.find(t => t.id == taskId);
-      if (!task) return;
-      
-      // Pre-fill the form with task data
-      document.getElementById('taskTitle').value = task.title;
-      document.getElementById('taskDescription').value = task.description || '';
-      document.getElementById('taskCourse').value = task.course_name || '';
-      document.getElementById('taskPriority').value = task.priority;
-      document.getElementById('taskDueDate').value = task.due_date;
-      
-      document.getElementById('addTaskModal').style.display = 'block';
-      
-      // Modify form to update instead of create
-      const form = document.getElementById('addTaskForm');
-      form.onsubmit = function(e) {
-        e.preventDefault();
-        updateTask(taskId, new FormData(form));
-      };
-    }
-
-    function updateTask(taskId, formData) {
-      formData.append('task_id', taskId);
-      
-      fetch('api/tasks.php', {
-        method: 'PUT',
-        body: formData
-      })
-      .then(response => response.json())
-      .then(data => {
-        if (data.success) {
-          showNotification('Task updated successfully!', 'success');
-          document.getElementById('addTaskModal').style.display = 'none';
-          loadTasks();
-          
-          // Reset form handler
-          document.getElementById('addTaskForm').onsubmit = handleAddTask;
-        } else {
-          showNotification('Failed to update task: ' + data.message, 'error');
-        }
-      })
-      .catch(error => {
-        console.error('Error updating task:', error);
-        showNotification('Error updating task', 'error');
-      });
-    }
-
-    function updateTaskCounts() {
-      const todoCount = tasks.filter(task => task.status === 'todo').length;
-      const progressCount = tasks.filter(task => task.status === 'progress').length;
-      const doneCount = tasks.filter(task => task.status === 'done').length;
-
-      document.getElementById('todoCount').textContent = `${todoCount} task${todoCount !== 1 ? 's' : ''} now`;
-      document.getElementById('progressCount').textContent = `${progressCount} task${progressCount !== 1 ? 's' : ''} now`;
-      document.getElementById('doneCount').textContent = `${doneCount} task${doneCount !== 1 ? 's' : ''} now`;
-    }
-
-    function updateCourseTaskCounts() {
-      courses.forEach(course => {
-        const courseTaskCount = tasks.filter(task => task.course_name === course.name).length;
-        const taskCountElement = document.getElementById(`taskCount${course.id}`);
-        if (taskCountElement) {
-          taskCountElement.textContent = courseTaskCount > 0 ? `${courseTaskCount} task${courseTaskCount !== 1 ? 's' : ''}` : 'No tasks';
-        }
-      });
-    }
-
-    function formatDate(dateString) {
-      if (!dateString) return 'No due date';
-      
-      const date = new Date(dateString);
-      const today = new Date();
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-
-      if (date.toDateString() === today.toDateString()) {
-        return 'Today';
-      } else if (date.toDateString() === tomorrow.toDateString()) {
-        return 'Tomorrow';
-      } else {
-        return date.toLocaleDateString();
-      }
-    }
-
-    function escapeHtml(text) {
-      const div = document.createElement('div');
-      div.textContent = text;
-      return div.innerHTML;
-    }
-
-    function showNotification(message, type = 'info') {
-      const notification = document.createElement('div');
-      notification.className = `notification ${type}`;
-      notification.textContent = message;
-      notification.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        padding: 15px 25px;
-        border-radius: 5px;
-        color: white;
-        font-weight: 500;
-        z-index: 1000;
-        opacity: 0;
-        transition: opacity 0.3s ease;
-      `;
-      
-      if (type === 'success') {
-        notification.style.backgroundColor = '#28a745';
-      } else if (type === 'error') {
-        notification.style.backgroundColor = '#dc3545';
-      } else {
-        notification.style.backgroundColor = '#17a2b8';
-      }
-      
-      document.body.appendChild(notification);
-      
-      setTimeout(() => {
-        notification.style.opacity = '1';
-      }, 100);
-      
-      setTimeout(() => {
-        notification.style.opacity = '0';
-        setTimeout(() => {
-          document.body.removeChild(notification);
-        }, 300);
-      }, 3000);
-    }
-
-    // Refresh tasks every 30 seconds
-    setInterval(loadTasks, 30000);
-  </script>
-
-  <style>
-    .no-tasks {
-      text-align: center;
-      color: #999;
-      font-style: italic;
-      padding: 40px 20px;
-      background: #f8f9fa;
-      border-radius: 12px;
-      border: 2px dashed #ddd;
-    }
-    
-    .notification {
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    }
-  </style>
 </body>
 </html>
