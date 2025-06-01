@@ -1607,3 +1607,253 @@ function initializeRewardTables() {
     }
 }
 ?>
+
+<?php
+// Add these functions to the end of config/functions.php
+
+/**
+ * Get all team members for a user
+ * @param int $user_id User ID
+ * @return array Team members data
+ */
+function getUserTeamMembers($user_id) {
+    $database = new Database();
+    
+    try {
+        $query = "SELECT * FROM team_members 
+                  WHERE user_id = :user_id AND status = 'active' 
+                  ORDER BY group_name, created_at DESC";
+        
+        return $database->query($query, [':user_id' => $user_id]) ?: [];
+        
+    } catch (Exception $e) {
+        error_log("Error getting team members: " . $e->getMessage());
+        return [];
+    }
+}
+
+/**
+ * Get team members grouped by group name
+ * @param int $user_id User ID
+ * @return array Team members grouped by group
+ */
+function getTeamMembersGrouped($user_id) {
+    $members = getUserTeamMembers($user_id);
+    $grouped = [];
+    
+    foreach ($members as $member) {
+        $group = $member['group_name'];
+        if (!isset($grouped[$group])) {
+            $grouped[$group] = [];
+        }
+        $grouped[$group][] = $member;
+    }
+    
+    return $grouped;
+}
+
+/**
+ * Add a new team member
+ * @param int $user_id User ID
+ * @param array $member_data Member data
+ * @return int|false Member ID or false on error
+ */
+function addTeamMember($user_id, $member_data) {
+    $database = new Database();
+    
+    try {
+        // Check if email already exists for this user
+        $check_query = "SELECT id FROM team_members 
+                       WHERE user_id = :user_id AND email = :email AND status = 'active'";
+        $existing = $database->queryRow($check_query, [
+            ':user_id' => $user_id,
+            ':email' => $member_data['email']
+        ]);
+        
+        if ($existing) {
+            return false; // Email already exists
+        }
+        
+        $data = [
+            'user_id' => $user_id,
+            'name' => cleanInput($member_data['name']),
+            'email' => cleanInput($member_data['email']),
+            'role' => cleanInput($member_data['role'] ?? ''),
+            'group_name' => cleanInput($member_data['group_name']),
+            'status' => 'active'
+        ];
+        
+        return $database->insert('team_members', $data);
+        
+    } catch (Exception $e) {
+        error_log("Error adding team member: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Update team member
+ * @param int $member_id Member ID
+ * @param int $user_id User ID (for security)
+ * @param array $member_data Updated member data
+ * @return bool Success status
+ */
+function updateTeamMember($member_id, $user_id, $member_data) {
+    $database = new Database();
+    
+    try {
+        // Check if member belongs to user
+        $existing = $database->queryRow(
+            "SELECT * FROM team_members WHERE id = :id AND user_id = :user_id AND status = 'active'",
+            [':id' => $member_id, ':user_id' => $user_id]
+        );
+        
+        if (!$existing) {
+            return false;
+        }
+        
+        // Check if email is being changed and if new email already exists
+        if ($member_data['email'] !== $existing['email']) {
+            $check_query = "SELECT id FROM team_members 
+                           WHERE user_id = :user_id AND email = :email AND id != :id AND status = 'active'";
+            $duplicate = $database->queryRow($check_query, [
+                ':user_id' => $user_id,
+                ':email' => $member_data['email'],
+                ':id' => $member_id
+            ]);
+            
+            if ($duplicate) {
+                return false; // Email already exists
+            }
+        }
+        
+        $update_data = [
+            'name' => cleanInput($member_data['name']),
+            'email' => cleanInput($member_data['email']),
+            'role' => cleanInput($member_data['role'] ?? ''),
+            'group_name' => cleanInput($member_data['group_name'])
+        ];
+        
+        $success = $database->update('team_members', $update_data, 'id = :id AND user_id = :user_id', [
+            ':id' => $member_id, 
+            ':user_id' => $user_id
+        ]);
+        
+        return $success > 0;
+        
+    } catch (Exception $e) {
+        error_log("Error updating team member: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Delete team member (soft delete)
+ * @param int $member_id Member ID
+ * @param int $user_id User ID (for security)
+ * @return bool Success status
+ */
+function deleteTeamMember($member_id, $user_id) {
+    $database = new Database();
+    
+    try {
+        // Soft delete by setting status to inactive
+        $success = $database->update('team_members', ['status' => 'inactive'], 'id = :id AND user_id = :user_id', [
+            ':id' => $member_id, 
+            ':user_id' => $user_id
+        ]);
+        
+        return $success > 0;
+        
+    } catch (Exception $e) {
+        error_log("Error deleting team member: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Get team member by ID
+ * @param int $member_id Member ID
+ * @param int $user_id User ID (for security)
+ * @return array|false Member data or false if not found
+ */
+function getTeamMember($member_id, $user_id) {
+    $database = new Database();
+    
+    try {
+        return $database->queryRow(
+            "SELECT * FROM team_members WHERE id = :id AND user_id = :user_id AND status = 'active'",
+            [':id' => $member_id, ':user_id' => $user_id]
+        );
+        
+    } catch (Exception $e) {
+        error_log("Error getting team member: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Get team member statistics
+ * @param int $user_id User ID
+ * @return array Statistics
+ */
+function getTeamMemberStats($user_id) {
+    $database = new Database();
+    
+    try {
+        $stats_query = "SELECT 
+            COUNT(*) as total_members,
+            COUNT(DISTINCT group_name) as total_groups
+            FROM team_members 
+            WHERE user_id = :user_id AND status = 'active'";
+        
+        $stats = $database->queryRow($stats_query, [':user_id' => $user_id]);
+        
+        return $stats ?: [
+            'total_members' => 0,
+            'total_groups' => 0
+        ];
+        
+    } catch (Exception $e) {
+        error_log("Error getting team member stats: " . $e->getMessage());
+        return [
+            'total_members' => 0,
+            'total_groups' => 0
+        ];
+    }
+}
+
+/**
+ * Get user initials for avatar
+ * @param string $name Full name
+ * @return string Initials
+ */
+function getUserInitials($name) {
+    $words = explode(' ', trim($name));
+    $initials = '';
+    
+    foreach ($words as $word) {
+        if (!empty($word)) {
+            $initials .= strtoupper($word[0]);
+        }
+    }
+    
+    return substr($initials, 0, 2); // Return max 2 initials
+}
+
+/**
+ * Format date for team member display
+ * @param string $date Date string
+ * @return string Formatted date
+ */
+function formatMemberDate($date) {
+    if (empty($date)) return '';
+    
+    try {
+        $datetime = new DateTime($date);
+        return $datetime->format('M j, Y');
+    } catch (Exception $e) {
+        return $date;
+    }
+}
+?>
