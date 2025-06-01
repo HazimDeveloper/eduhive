@@ -31,6 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'end_time' => $_POST['end_time'] ?? null,
             'course_id' => !empty($_POST['course_id']) ? (int)$_POST['course_id'] : null,
             'reminder_type' => cleanInput($_POST['reminder_type'] ?? ''),
+            'whatsapp_number' => cleanInput($_POST['whatsapp_number'] ?? ''), // New field for WhatsApp
             'status' => 'todo',
             'priority' => 'medium'
         ];
@@ -39,6 +40,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $task_id = $database->insert('tasks', $task_data);
         
         if ($task_id) {
+            // Handle WhatsApp reminder scheduling if selected
+            if ($task_data['reminder_type'] === 'whatsapp' && !empty($task_data['whatsapp_number'])) {
+                scheduleWhatsAppReminder($task_id, $task_data);
+            }
+            
             // Redirect back to tasks page with success message
             header("Location: task.php?success=1");
             exit();
@@ -50,6 +56,76 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         error_log("Create task error: " . $e->getMessage());
         $error_message = "An error occurred while creating the task.";
     }
+}
+
+// Function to schedule WhatsApp reminder (you'll need to implement this with WhatsApp Business API)
+function scheduleWhatsAppReminder($task_id, $task_data) {
+    // This is where you'd integrate with WhatsApp Business API
+    // For now, we'll just log the reminder request
+    error_log("WhatsApp reminder scheduled for task {$task_id} to number {$task_data['whatsapp_number']}");
+    
+    // You could also store this in a reminders table for processing by a cron job
+    $database = new Database();
+    $reminder_data = [
+        'task_id' => $task_id,
+        'user_id' => $task_data['user_id'],
+        'reminder_type' => 'whatsapp',
+        'recipient' => $task_data['whatsapp_number'],
+        'scheduled_time' => calculateReminderTime($task_data['due_date'], $task_data['start_time']),
+        'message' => generateWhatsAppMessage($task_data),
+        'status' => 'pending',
+        'created_at' => date('Y-m-d H:i:s')
+    ];
+    
+    // Create reminders table if it doesn't exist
+    try {
+        $create_table = "CREATE TABLE IF NOT EXISTS task_reminders (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            task_id INT NOT NULL,
+            user_id INT NOT NULL,
+            reminder_type VARCHAR(20) NOT NULL,
+            recipient VARCHAR(100) NOT NULL,
+            scheduled_time DATETIME NOT NULL,
+            message TEXT NOT NULL,
+            status ENUM('pending', 'sent', 'failed') DEFAULT 'pending',
+            sent_at TIMESTAMP NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )";
+        $database->getConnection()->exec($create_table);
+        
+        $database->insert('task_reminders', $reminder_data);
+    } catch (Exception $e) {
+        error_log("Error creating reminder: " . $e->getMessage());
+    }
+}
+
+function calculateReminderTime($due_date, $start_time) {
+    // Default to 1 hour before the task time
+    $task_datetime = $due_date . ' ' . ($start_time ?: '09:00:00');
+    return date('Y-m-d H:i:s', strtotime($task_datetime . ' -1 hour'));
+}
+
+function generateWhatsAppMessage($task_data) {
+    $message = "🔔 *Task Reminder*\n\n";
+    $message .= "📋 *Task:* " . $task_data['title'] . "\n";
+    $message .= "📅 *Due:* " . date('M j, Y', strtotime($task_data['due_date']));
+    
+    if ($task_data['start_time']) {
+        $message .= " at " . date('g:i A', strtotime($task_data['start_time']));
+    }
+    
+    $message .= "\n\n";
+    
+    if (!empty($task_data['description'])) {
+        $message .= "📝 *Details:* " . $task_data['description'] . "\n\n";
+    }
+    
+    $message .= "💪 *Time to get it done!*\n";
+    $message .= "✨ _EduHive - Your Academic Assistant_";
+    
+    return $message;
 }
 ?>
 <!DOCTYPE html>
@@ -194,6 +270,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       cursor: pointer;
     }
 
+    /* WhatsApp input styling */
+    .whatsapp-input-group {
+      display: none;
+      margin-top: 15px;
+    }
+
+    .whatsapp-input-group.show {
+      display: block;
+      animation: slideDown 0.3s ease;
+    }
+
+    .whatsapp-input {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .whatsapp-prefix {
+      background: #25D366;
+      color: white;
+      padding: 15px 15px;
+      border-radius: 10px 0 0 10px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .whatsapp-number {
+      flex: 1;
+      border-radius: 0 10px 10px 0;
+      border-left: none;
+    }
+
+    .whatsapp-help {
+      font-size: 14px;
+      color: #666;
+      margin-top: 8px;
+      font-style: italic;
+    }
+
+    @keyframes slideDown {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
     /* Submit Button */
     .submit-section {
       margin-top: 60px;
@@ -267,6 +395,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       .form-group select,
       .form-group textarea {
         font-size: 16px;
+      }
+      
+      .whatsapp-input {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      
+      .whatsapp-prefix {
+        border-radius: 10px 10px 0 0;
+        justify-content: center;
+      }
+      
+      .whatsapp-number {
+        border-radius: 0 0 10px 10px;
+        border-left: 2px solid #ddd;
       }
     }
   </style>
@@ -393,7 +536,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         <div class="form-group">
           <label for="reminder_type">Device / System Reminder</label>
-          <select id="reminder_type" name="reminder_type">
+          <select id="reminder_type" name="reminder_type" onchange="toggleWhatsAppInput()">
             <option value="">Select reminder type</option>
             <option value="none">No reminder</option>
             <option value="15min">15 minutes before</option>
@@ -402,7 +545,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <option value="1day">1 day before</option>
             <option value="email">Email notification</option>
             <option value="push">Push notification</option>
+            <option value="whatsapp">📱 WhatsApp reminder</option>
           </select>
+          
+          <!-- WhatsApp Number Input (Hidden by default) -->
+          <div id="whatsappInput" class="whatsapp-input-group">
+            <div class="whatsapp-input">
+              <div class="whatsapp-prefix">
+                📱 +60
+              </div>
+              <input type="tel" 
+                     id="whatsapp_number" 
+                     name="whatsapp_number" 
+                     class="whatsapp-number"
+                     placeholder="123456789" 
+                     pattern="[0-9]{8,10}"
+                     maxlength="10">
+            </div>
+            <div class="whatsapp-help">
+              💡 Enter your WhatsApp number without country code (Malaysia +60)
+            </div>
+          </div>
         </div>
         
         <div class="submit-section">
@@ -413,6 +576,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   </div>
 
   <script>
+    function toggleWhatsAppInput() {
+      const reminderType = document.getElementById('reminder_type').value;
+      const whatsappInput = document.getElementById('whatsappInput');
+      const whatsappNumber = document.getElementById('whatsapp_number');
+      
+      if (reminderType === 'whatsapp') {
+        whatsappInput.classList.add('show');
+        whatsappNumber.required = true;
+      } else {
+        whatsappInput.classList.remove('show');
+        whatsappNumber.required = false;
+        whatsappNumber.value = '';
+      }
+    }
+
     function handleFileImport(input) {
       const file = input.files[0];
       if (file) {
@@ -447,7 +625,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if (data.start_time) document.getElementById('start_time').value = data.start_time;
       if (data.end_time) document.getElementById('end_time').value = data.end_time;
       if (data.description) document.getElementById('description').value = data.description;
-      if (data.reminder_type) document.getElementById('reminder_type').value = data.reminder_type;
+      if (data.reminder_type) {
+        document.getElementById('reminder_type').value = data.reminder_type;
+        toggleWhatsAppInput();
+      }
+      if (data.whatsapp_number) document.getElementById('whatsapp_number').value = data.whatsapp_number;
     }
     
     function populateFormFromCSV(content) {
@@ -463,6 +645,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           if (header === 'title') document.getElementById('title').value = value;
           else if (header === 'date') document.getElementById('date').value = value;
           else if (header === 'description') document.getElementById('description').value = value;
+          else if (header === 'whatsapp_number') document.getElementById('whatsapp_number').value = value;
         }
       }
     }
@@ -512,6 +695,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         const endHour = parseInt(hours) + 1;
         const endTime = (endHour < 24) ? `${endHour.toString().padStart(2, '0')}:${minutes}` : '23:59';
         document.getElementById('end_time').value = endTime;
+      }
+    });
+
+    // WhatsApp number formatting
+    document.getElementById('whatsapp_number').addEventListener('input', function() {
+      this.value = this.value.replace(/\D/g, '');
+    });
+    
+    // Form validation
+    document.querySelector('.task-form').addEventListener('submit', function(e) {
+      const reminderType = document.getElementById('reminder_type').value;
+      const whatsappNumber = document.getElementById('whatsapp_number').value;
+      
+      if (reminderType === 'whatsapp' && (!whatsappNumber || whatsappNumber.length < 8)) {
+        e.preventDefault();
+        showNotification('Please enter a valid WhatsApp number', 'error');
+        document.getElementById('whatsapp_number').focus();
+        return false;
       }
     });
   </script>
