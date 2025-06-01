@@ -1,0 +1,676 @@
+/* ================================
+   DASHBOARD.CSS - Dashboard-specific styles
+   ================================ */
+
+/* Dashboard Body */
+.dashboard-body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0;
+    padding: 0;
+    background: #f5f5f5;
+    height: 100vh;
+    overflow: hidden;
+  }
+  
+  /* Dashboard Container */
+  .dashboard-container {
+    display: flex;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+  }
+  
+  /* Dashboard Main Content */
+  .main-content {
+    flex: 1;
+    background: #f8f9fa;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .content-area {
+    padding: 30px 40px;
+    flex: 1;
+  }
+  
+  /* Dashboard Header */
+  .dashboard-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+  }
+  
+  .dashboard-header h1 {
+    font-size: 36px;
+    color: #333;
+    margin: 0;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+  
+  .user-name {
+    font-size: 16px;
+    color: #666;
+    font-weight: 500;
+  }
+  
+  .user-name a {
+    color: #666;
+    text-decoration: none;
+    transition: color 0.3s ease;
+  }
+  
+  .user-name a:hover {
+    color: #333;
+  }
+  
+  /* Dashboard Grid */
+  .dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 25px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  
+  /* Dashboard Cards */
+  .dashboard-card {
+    background: linear-gradient(135deg, #d4b5a0 0%, #c4a68a 100%);
+    border-radius: 20px;
+    padding: 25px;
+    color: white;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
+    min-height: 160px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+  }
+  
+  .dashboard-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
+  }
+  
+  .dashboard-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%);
+    pointer-events: none;
+  }
+  
+  .dashboard-card h3 {
+    margin: 0 0 15px 0;
+    font-size: 16px;
+    font-weight: 600;
+    opacity: 0.9;
+    position: relative;
+    z-index: 1;
+  }
+  
+  /* Big Numbers */
+  .big-number {
+    font-size: 48px;
+    font-weight: 700;
+    text-align: center;
+    margin: 15px 0;
+    line-height: 1;
+    position: relative;
+    z-index: 1;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+  
+  /* Due Today Card */
+  .due-today {
+    background: linear-gradient(135deg, #c4a68a 0%, #b19176 100%);
+  }
+  
+  .task-details {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    position: relative;
+    z-index: 1;
+  }
+  
+  .task-details p {
+    margin: 8px 0;
+    font-size: 14px;
+    line-height: 1.4;
+  }
+  
+  .task-details strong {
+    font-weight: 600;
+  }
+  
+  /* Reminder Card */
+  .reminder {
+    background: linear-gradient(135deg, #b19176 0%, #8B7355 100%);
+  }
+  
+  .reminder-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    position: relative;
+    z-index: 1;
+  }
+  
+  .reminder-content h4 {
+    margin: 0 0 10px 0;
+    font-size: 16px;
+    font-weight: 600;
+  }
+  
+  .reminder-content p {
+    margin: 5px 0;
+    font-size: 14px;
+    opacity: 0.9;
+  }
+  
+  /* Rewards Card */
+  .rewards {
+    background: linear-gradient(135deg, #d4a574 0%, #c4956c 100%);
+    text-align: center;
+    justify-content: space-between;
+  }
+  
+  .reward-icons {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    margin: 20px 0;
+    position: relative;
+    z-index: 1;
+  }
+  
+  .reward-badge, 
+  .reward-medal {
+    font-size: 32px;
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    width: 60px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(10px);
+    transition: all 0.3s ease;
+  }
+  
+  .reward-badge:hover,
+  .reward-medal:hover {
+    transform: scale(1.1);
+    background: rgba(255, 255, 255, 0.3);
+  }
+  
+  .reward-btn {
+    background: rgba(255, 255, 255, 0.9);
+    color: #333;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 20px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+    z-index: 1;
+    font-size: 14px;
+  }
+  
+  .reward-btn:hover {
+    background: white;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  }
+  
+  /* Progress Card */
+  .progress {
+    background: linear-gradient(135deg, #8B7355 0%, #6d5d48 100%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .progress-chart {
+    margin: 10px 0;
+    position: relative;
+    z-index: 1;
+  }
+  
+  .circular-progress {
+    position: relative;
+    width: 120px;
+    height: 120px;
+  }
+  
+  .circular-progress svg {
+    transform: rotate(-90deg);
+  }
+  
+  .circular-progress circle {
+    transition: stroke-dashoffset 0.5s ease;
+  }
+  
+  .progress-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+  }
+  
+  .percentage {
+    display: block;
+    font-size: 24px;
+    font-weight: 700;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  
+  .label {
+    display: block;
+    font-size: 12px;
+    opacity: 0.8;
+    font-weight: 500;
+  }
+  
+  /* Calendar Section */
+  .calendar-section {
+    width: 320px;
+    background: #fff;
+    padding: 20px;
+    overflow-y: auto;
+    border-left: 1px solid #e9ecef;
+  }
+  
+  .calendar-widget {
+    background: #f5f5f5;
+    border-radius: 15px;
+    padding: 20px;
+  }
+  
+  .calendar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+  }
+  
+  .calendar-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #333;
+    letter-spacing: 0.5px;
+  }
+  
+  .calendar-nav {
+    background: none;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    color: #666;
+    padding: 8px 12px;
+    border-radius: 6px;
+    transition: all 0.3s ease;
+    font-weight: 600;
+  }
+  
+  .calendar-nav:hover {
+    color: #8B7355;
+    background: rgba(139, 115, 85, 0.1);
+  }
+  
+  .calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 1px;
+    background: #ddd;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  
+  .calendar-day-header {
+    text-align: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: #8B7355;
+    padding: 10px 4px;
+    background: #fff;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  
+  #calendarDays {
+    display: contents;
+  }
+  
+  .calendar-day {
+    text-align: center;
+    padding: 12px 4px;
+    font-size: 14px;
+    color: #333;
+    cursor: pointer;
+    background: #fff;
+    transition: all 0.3s ease;
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 500;
+  }
+  
+  .calendar-day:hover {
+    background-color: rgba(139, 115, 85, 0.1);
+    color: #8B7355;
+    font-weight: 600;
+  }
+  
+  .calendar-day.today {
+    background-color: #8B7355;
+    color: white;
+    font-weight: 700;
+    box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.3);
+  }
+  
+  .calendar-day.selected {
+    background-color: #b19176;
+    color: white;
+    font-weight: 600;
+  }
+  
+  .calendar-day.other-month {
+    color: #ccc;
+    background: #f8f9fa;
+  }
+  
+  .calendar-day.other-month:hover {
+    background: #e9ecef;
+    color: #999;
+  }
+  
+  /* Responsive Design */
+  @media (max-width: 1400px) {
+    .content-area {
+      padding: 25px 30px;
+    }
+    
+    .calendar-section {
+      width: 280px;
+    }
+  }
+  
+  @media (max-width: 1200px) {
+    .dashboard-grid {
+      grid-template-columns: repeat(2, 1fr);
+      max-width: 800px;
+    }
+    
+    .dashboard-card:nth-child(3) {
+      grid-column: 1 / -1;
+      max-width: 400px;
+      margin: 0 auto;
+    }
+  }
+  
+  @media (max-width: 1024px) {
+    .dashboard-container {
+      flex-direction: column;
+    }
+    
+    .calendar-section {
+      width: 100%;
+      height: auto;
+      border-left: none;
+      border-top: 1px solid #e9ecef;
+      padding: 15px 20px;
+    }
+    
+    .calendar-widget {
+      max-width: 400px;
+      margin: 0 auto;
+    }
+    
+    .content-area {
+      padding: 20px;
+    }
+    
+    .dashboard-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 15px;
+    }
+    
+    .dashboard-header h1 {
+      font-size: 28px;
+    }
+  }
+  
+  @media (max-width: 768px) {
+    .dashboard-grid {
+      grid-template-columns: 1fr;
+      gap: 20px;
+    }
+    
+    .dashboard-card {
+      padding: 20px;
+      min-height: 140px;
+    }
+    
+    .dashboard-card h3 {
+      font-size: 15px;
+    }
+    
+    .big-number {
+      font-size: 36px;
+    }
+    
+    .reward-icons {
+      gap: 15px;
+      margin: 15px 0;
+    }
+    
+    .reward-badge,
+    .reward-medal {
+      width: 50px;
+      height: 50px;
+      font-size: 24px;
+    }
+    
+    .circular-progress {
+      width: 100px;
+      height: 100px;
+    }
+    
+    .percentage {
+      font-size: 20px;
+    }
+    
+    .calendar-widget {
+      padding: 15px;
+      max-width: 100%;
+    }
+    
+    .calendar-day {
+      padding: 8px 4px;
+      min-height: 35px;
+      font-size: 13px;
+    }
+    
+    .calendar-day-header {
+      padding: 8px 4px;
+      font-size: 10px;
+    }
+  }
+  
+  @media (max-width: 480px) {
+    .content-area {
+      padding: 15px;
+    }
+    
+    .dashboard-header h1 {
+      font-size: 24px;
+    }
+    
+    .dashboard-card {
+      padding: 15px;
+      min-height: 120px;
+    }
+    
+    .big-number {
+      font-size: 32px;
+    }
+    
+    .reward-icons {
+      gap: 10px;
+    }
+    
+    .reward-badge,
+    .reward-medal {
+      width: 45px;
+      height: 45px;
+      font-size: 20px;
+    }
+    
+    .circular-progress {
+      width: 80px;
+      height: 80px;
+    }
+    
+    .percentage {
+      font-size: 18px;
+    }
+    
+    .label {
+      font-size: 10px;
+    }
+    
+    .calendar-section {
+      padding: 10px 15px;
+    }
+    
+    .calendar-widget {
+      padding: 10px;
+    }
+    
+    .calendar-header h3 {
+      font-size: 14px;
+    }
+    
+    .calendar-nav {
+      padding: 6px 10px;
+      font-size: 16px;
+    }
+    
+    .calendar-day {
+      padding: 6px 2px;
+      min-height: 30px;
+      font-size: 12px;
+    }
+    
+    .calendar-day-header {
+      padding: 6px 2px;
+      font-size: 9px;
+    }
+  }
+  
+  /* Animation and Transitions */
+  @keyframes slideIn {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  .dashboard-card {
+    animation: slideIn 0.5s ease;
+  }
+  
+  .dashboard-card:nth-child(1) { animation-delay: 0.1s; }
+  .dashboard-card:nth-child(2) { animation-delay: 0.2s; }
+  .dashboard-card:nth-child(3) { animation-delay: 0.3s; }
+  .dashboard-card:nth-child(4) { animation-delay: 0.4s; }
+  .dashboard-card:nth-child(5) { animation-delay: 0.5s; }
+  .dashboard-card:nth-child(6) { animation-delay: 0.6s; }
+  
+  /* Loading States */
+  .dashboard-card.loading {
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  
+  .dashboard-card.loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 20px;
+    height: 20px;
+    margin: -10px 0 0 -10px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: rgba(255, 255, 255, 0.8);
+    animation: spin 1s ease-in-out infinite;
+  }
+  
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  
+  /* Focus and Accessibility */
+  .reward-btn:focus,
+  .calendar-nav:focus {
+    outline: 2px solid rgba(139, 115, 85, 0.5);
+    outline-offset: 2px;
+  }
+  
+  .calendar-day:focus {
+    outline: 2px solid #8B7355;
+    outline-offset: 1px;
+  }
+  
+  /* Print Styles */
+  @media print {
+    .calendar-section,
+    .reward-btn,
+    .calendar-nav {
+      display: none !important;
+    }
+    
+    .dashboard-container {
+      flex-direction: column;
+    }
+    
+    .content-area {
+      padding: 0;
+    }
+    
+    .dashboard-card {
+      background: white !important;
+      color: #333 !important;
+      border: 1px solid #ddd;
+      break-inside: avoid;
+      margin-bottom: 20px;
+    }
+    
+    .dashboard-grid {
+      grid-template-columns: repeat(2, 1fr);
+      gap: 15px;
+    }
+  }
