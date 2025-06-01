@@ -148,7 +148,7 @@ function safeGet($array, $key, $default = '') {
           <h1>Dashboard</h1>
           <div class="user-name">
             <?php echo htmlspecialchars($user_name); ?> > 
-            <a href="auth/logout.php" style="color: #666; text-decoration: none;" 
+            <a href="logout.php" style="color: #666; text-decoration: none;" 
                onclick="return confirm('Are you sure you want to logout?')">Logout</a>
           </div>
         </div>
