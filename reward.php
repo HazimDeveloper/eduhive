@@ -1,3 +1,38 @@
+<?php
+require_once 'config/database.php';
+require_once 'config/session.php';
+require_once 'config/functions.php';
+
+// Ensure user is logged in
+requireLogin();
+
+// Get current user data
+$user_id = getCurrentUserId();
+$user_name = getCurrentUserName() ?: 'User';
+
+// Initialize reward tables
+initializeRewardTables();
+
+// Handle AJAX requests for claiming rewards
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['action'])) {
+    header('Content-Type: application/json');
+    
+    if ($_POST['action'] === 'claim_reward') {
+        $reward_type = cleanInput($_POST['reward_type']);
+        $result = claimReward($user_id, $reward_type);
+        echo json_encode($result);
+        exit();
+    }
+    
+    echo json_encode(['success' => false, 'message' => 'Invalid action']);
+    exit();
+}
+
+// Get user data for the page
+$user_progress = getUserProgress($user_id);
+$user_ranking = getUserRanking($user_id);
+$reward_eligibility = checkRewardEligibility($user_id);
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -23,25 +58,25 @@
       
       <ul class="nav-menu">
         <li class="nav-item">
-          <a href="dashboard.html">Dashboard</a>
+          <a href="dashboard.php">Dashboard</a>
         </li>
         <li class="nav-item">
-          <a href="calendar.html">Calendar</a>
+          <a href="calendar.php">Calendar</a>
         </li>
         <li class="nav-item">
-          <a href="schedule.html">Class Schedules</a>
+          <a href="class_schedule.php">Class Schedules</a>
         </li>
         <li class="nav-item">
-          <a href="tasks.html">Task</a>
+          <a href="task.php">Task</a>
         </li>
         <li class="nav-item">
-          <a href="record-time.html">Record Time</a>
+          <a href="record_time.php">Record Time</a>
         </li>
         <li class="nav-item active">
-          <a href="#reward">Reward</a>
+          <a href="reward.php">Reward</a>
         </li>
         <li class="nav-item">
-          <a href="#team">Team Members</a>
+          <a href="team_member.php">Team Members</a>
         </li>
       </ul>
     </nav>
@@ -50,7 +85,7 @@
     <main class="rewards-main">
       <div class="rewards-header">
         <h1>Rewards</h1>
-        <div class="user-name">NUR KHALIDA BINTI NAZERI ></div>
+        <div class="user-name"><?php echo htmlspecialchars($user_name); ?> ></div>
       </div>
       
       <!-- Reward Cards -->
@@ -68,7 +103,13 @@
                 </div>
               </div>
             </div>
-            <button class="claim-btn">Claim Reward</button>
+            <?php if ($reward_eligibility['daily']['claimed']): ?>
+              <button class="claim-btn claimed" disabled>Claimed Today</button>
+            <?php elseif ($reward_eligibility['daily']['eligible']): ?>
+              <button class="claim-btn" onclick="claimReward('daily')">Claim Reward</button>
+            <?php else: ?>
+              <button class="claim-btn" disabled>Check in daily</button>
+            <?php endif; ?>
           </div>
         </div>
         
@@ -85,7 +126,13 @@
                 </div>
               </div>
             </div>
-            <button class="claim-btn">Claim Reward</button>
+            <?php if ($reward_eligibility['first_task']['claimed']): ?>
+              <button class="claim-btn claimed" disabled>Claimed</button>
+            <?php elseif ($reward_eligibility['first_task']['eligible']): ?>
+              <button class="claim-btn" onclick="claimReward('first_task')">Claim Reward</button>
+            <?php else: ?>
+              <button class="claim-btn" disabled>Complete 1 task</button>
+            <?php endif; ?>
           </div>
         </div>
         
@@ -103,7 +150,13 @@
                 </div>
               </div>
             </div>
-            <button class="claim-btn">Claim Reward</button>
+            <?php if ($reward_eligibility['ten_tasks']['claimed']): ?>
+              <button class="claim-btn claimed" disabled>Claimed</button>
+            <?php elseif ($reward_eligibility['ten_tasks']['eligible']): ?>
+              <button class="claim-btn" onclick="claimReward('ten_tasks')">Claim Reward</button>
+            <?php else: ?>
+              <button class="claim-btn" disabled>Complete 10 tasks</button>
+            <?php endif; ?>
           </div>
         </div>
       </div>
@@ -114,7 +167,7 @@
         <div class="stat-card badges-card">
           <div class="stat-content">
             <h2>Total Badges Collected</h2>
-            <div class="stat-number">23</div>
+            <div class="stat-number" id="totalBadges"><?php echo $user_progress['total_badges'] ?? 0; ?></div>
             <p class="stat-description">Badges Collected. Congrats!</p>
           </div>
         </div>
@@ -125,84 +178,13 @@
             <h2>Total Ranking Among Members</h2>
             <div class="ranking-display">
               <span class="hashtag">#</span>
-              <span class="rank-number">1</span>
+              <span class="rank-number" id="userRank"><?php echo $user_ranking; ?></span>
             </div>
           </div>
         </div>
       </div>
       
-      <!-- Badge Collection -->
-      <div class="badge-collection">
-        <h2>Your Badge Collection</h2>
-        <div class="badges-grid">
-          <div class="collected-badge">
-            <div class="badge-icon daily">🏆</div>
-            <span>Daily Achiever</span>
-          </div>
-          <div class="collected-badge">
-            <div class="badge-icon task">🎯</div>
-            <span>Task Master</span>
-          </div>
-          <div class="collected-badge">
-            <div class="badge-icon time">⏰</div>
-            <span>Time Keeper</span>
-          </div>
-          <div class="collected-badge">
-            <div class="badge-icon streak">🔥</div>
-            <span>7-Day Streak</span>
-          </div>
-          <div class="collected-badge">
-            <div class="badge-icon productivity">📈</div>
-            <span>Productivity Pro</span>
-          </div>
-          <div class="collected-badge">
-            <div class="badge-icon milestone">🌟</div>
-            <span>Milestone</span>
-          </div>
-        </div>
-      </div>
-      
-      <!-- Leaderboard Section -->
-      <div class="leaderboard-section">
-        <h2>Team Leaderboard</h2>
-        <div class="leaderboard">
-          <div class="leaderboard-item current-user">
-            <div class="rank">#1</div>
-            <div class="user-info">
-              <div class="user-avatar">👤</div>
-              <div class="user-details">
-                <span class="user-name-text">NUR KHALIDA BINTI NAZERI</span>
-                <span class="user-points">156 points</span>
-              </div>
-            </div>
-            <div class="user-badges">23 badges</div>
-          </div>
-          
-          <div class="leaderboard-item">
-            <div class="rank">#2</div>
-            <div class="user-info">
-              <div class="user-avatar">👤</div>
-              <div class="user-details">
-                <span class="user-name-text">Ahmad Rahman</span>
-                <span class="user-points">142 points</span>
-              </div>
-            </div>
-            <div class="user-badges">19 badges</div>
-          </div>
-          
-          <div class="leaderboard-item">
-            <div class="rank">#3</div>
-            <div class="user-info">
-              <div class="user-avatar">👤</div>
-              <div class="user-details">
-                <span class="user-name-text">Sarah Lee</span>
-                <span class="user-points">128 points</span>
-              </div>
-            </div>
-            <div class="user-badges">15 badges</div>
-          </div>
-        </div>
-      </div>
+
     </main>
   </div>
 
@@ -211,114 +193,23 @@
     <div class="modal-content">
       <span class="close">&times;</span>
       <div class="modal-reward">
-        <div class="modal-badge" id="modalBadge">
-          🏆
-        </div>
+        <div class="modal-badge" id="modalBadge">🏆</div>
         <h3 id="modalTitle">Congratulations!</h3>
         <p id="modalDescription">You've earned a new badge!</p>
         <div class="modal-points">
-          <span>+10 Points</span>
+          <span id="modalPoints">+10 Points</span>
         </div>
-        <button class="collect-btn">Collect Reward</button>
+        <button class="collect-btn" id="collectBtn">Collect Reward</button>
       </div>
     </div>
   </div>
 
   <script>
     document.addEventListener('DOMContentLoaded', function() {
-      const claimButtons = document.querySelectorAll('.claim-btn');
       const modal = document.getElementById('rewardModal');
       const closeModal = document.querySelector('.close');
-      const collectBtn = document.querySelector('.collect-btn');
+      const collectBtn = document.getElementById('collectBtn');
       
-      // Reward data
-      const rewards = {
-        'daily': {
-          title: 'Daily Reward Claimed!',
-          description: 'You\'ve completed your daily check-in.',
-          badge: '🏆',
-          points: 10
-        },
-        'task': {
-          title: 'Task Completed!',
-          description: 'Great job finishing your task!',
-          badge: '🎯',
-          points: 15
-        },
-        'achievement': {
-          title: 'Achievement Unlocked!',
-          description: 'You\'ve completed more than 10 tasks!',
-          badge: '🌟',
-          points: 25
-        }
-      };
-
-      // Load user progress from localStorage
-      let userProgress = JSON.parse(localStorage.getItem('eduhive-user-progress')) || {
-        totalBadges: 23,
-        rank: 1,
-        points: 156,
-        claimedRewards: []
-      };
-
-      // Check if rewards are already claimed
-      updateRewardButtons();
-
-      // Add click event to all claim buttons
-      claimButtons.forEach((button, index) => {
-        button.addEventListener('click', function(e) {
-          e.preventDefault();
-          
-          const rewardTypes = ['daily', 'task', 'achievement'];
-          const rewardType = rewardTypes[index];
-          const reward = rewards[rewardType];
-          
-          if (!userProgress.claimedRewards.includes(rewardType)) {
-            showRewardModal(reward);
-            
-            // Mark as claimed
-            userProgress.claimedRewards.push(rewardType);
-            userProgress.totalBadges += 1;
-            userProgress.points += reward.points;
-            
-            // Save progress
-            localStorage.setItem('eduhive-user-progress', JSON.stringify(userProgress));
-            
-            // Update UI
-            updateRewardButtons();
-            updateStats();
-          }
-        });
-      });
-
-      function showRewardModal(reward) {
-        document.getElementById('modalBadge').textContent = reward.badge;
-        document.getElementById('modalTitle').textContent = reward.title;
-        document.getElementById('modalDescription').textContent = reward.description;
-        document.querySelector('.modal-points span').textContent = `+${reward.points} Points`;
-        
-        modal.style.display = 'block';
-      }
-
-      function updateRewardButtons() {
-        claimButtons.forEach((button, index) => {
-          const rewardTypes = ['daily', 'task', 'achievement'];
-          const rewardType = rewardTypes[index];
-          
-          if (userProgress.claimedRewards.includes(rewardType)) {
-            button.textContent = 'Claimed';
-            button.disabled = true;
-            button.classList.add('claimed');
-          }
-        });
-      }
-
-      function updateStats() {
-        document.querySelector('.stat-number').textContent = userProgress.totalBadges;
-        document.querySelector('.rank-number').textContent = userProgress.rank;
-        document.querySelector('.user-points').textContent = `${userProgress.points} points`;
-      }
-
       // Modal event listeners
       closeModal.addEventListener('click', () => {
         modal.style.display = 'none';
@@ -334,49 +225,138 @@
           modal.style.display = 'none';
         }
       });
-
-      function showSuccessNotification() {
-        // Create a simple notification
-        const notification = document.createElement('div');
-        notification.className = 'success-notification';
-        notification.textContent = 'Reward collected successfully!';
-        document.body.appendChild(notification);
-        
-        setTimeout(() => {
-          notification.classList.add('show');
-        }, 100);
-        
-        setTimeout(() => {
-          notification.classList.remove('show');
-          setTimeout(() => {
-            document.body.removeChild(notification);
-          }, 300);
-        }, 3000);
-      }
-
-      // Simulate daily reset (for demo purposes)
-      function checkDailyReset() {
-        const lastLogin = localStorage.getItem('eduhive-last-login');
-        const today = new Date().toDateString();
-        
-        if (lastLogin !== today) {
-          // Reset daily reward
-          userProgress.claimedRewards = userProgress.claimedRewards.filter(r => r !== 'daily');
-          localStorage.setItem('eduhive-user-progress', JSON.stringify(userProgress));
-          localStorage.setItem('eduhive-last-login', today);
-          updateRewardButtons();
-        }
-      }
-
-      // Badge collection animation
-      document.querySelectorAll('.collected-badge').forEach((badge, index) => {
-        badge.style.animationDelay = `${index * 0.1}s`;
-      });
-
-      // Initialize
-      updateStats();
-      checkDailyReset();
     });
+
+    function claimReward(rewardType) {
+      const rewardData = {
+        'daily': {
+          title: 'Daily Reward Claimed!',
+          description: 'You\'ve completed your daily check-in.',
+          badge: '🏆',
+          points: 10
+        },
+        'first_task': {
+          title: 'First Task Completed!',
+          description: 'Great job finishing your first task!',
+          badge: '🎯',
+          points: 25
+        },
+        'ten_tasks': {
+          title: 'Achievement Unlocked!',
+          description: 'You\'ve completed more than 10 tasks!',
+          badge: '🌟',
+          points: 100
+        }
+      };
+
+      const reward = rewardData[rewardType];
+      
+      // Send claim request to server
+      fetch('reward.php', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `action=claim_reward&reward_type=${rewardType}`
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          showRewardModal(reward, data.points_earned);
+          
+          // Update UI
+          updateRewardButton(rewardType);
+          updateStats(data.new_badges);
+          
+        } else {
+          showNotification(data.message || 'Failed to claim reward', 'error');
+        }
+      })
+      .catch(error => {
+        console.error('Error claiming reward:', error);
+        showNotification('Error claiming reward', 'error');
+      });
+    }
+
+    function showRewardModal(reward, points) {
+      document.getElementById('modalBadge').textContent = reward.badge;
+      document.getElementById('modalTitle').textContent = reward.title;
+      document.getElementById('modalDescription').textContent = reward.description;
+      document.getElementById('modalPoints').textContent = `+${points} Points`;
+      
+      document.getElementById('rewardModal').style.display = 'block';
+    }
+
+    function updateRewardButton(rewardType) {
+      const buttons = document.querySelectorAll('.claim-btn');
+      buttons.forEach(button => {
+        if (button.onclick && button.onclick.toString().includes(rewardType)) {
+          button.textContent = 'Claimed';
+          button.disabled = true;
+          button.classList.add('claimed');
+        }
+      });
+    }
+
+    function updateStats(newBadges) {
+      const badgesElement = document.getElementById('totalBadges');
+      if (badgesElement) {
+        badgesElement.textContent = newBadges;
+      }
+    }
+
+    function showSuccessNotification() {
+      showNotification('Reward collected successfully!', 'success');
+    }
+
+    function showNotification(message, type = 'info') {
+      const notification = document.createElement('div');
+      notification.className = `success-notification${type === 'success' ? ' show' : ''}`;
+      notification.textContent = message;
+      notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: ${type === 'success' ? 'linear-gradient(45deg, #28a745, #20c997)' : '#dc3545'};
+        color: white;
+        padding: 15px 25px;
+        border-radius: 10px;
+        font-weight: 600;
+        box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);
+        z-index: 1001;
+        transform: translateX(100%);
+        transition: transform 0.3s ease;
+      `;
+      
+      document.body.appendChild(notification);
+      
+      setTimeout(() => {
+        notification.style.transform = 'translateX(0)';
+      }, 100);
+      
+      setTimeout(() => {
+        notification.style.transform = 'translateX(100%)';
+        setTimeout(() => {
+          if (document.body.contains(notification)) {
+            document.body.removeChild(notification);
+          }
+        }, 300);
+      }, 3000);
+    }
+
+    // Check for daily reset and update buttons
+    function checkDailyReset() {
+      const lastLogin = localStorage.getItem('eduhive-last-login');
+      const today = new Date().toDateString();
+      
+      if (lastLogin !== today) {
+        localStorage.setItem('eduhive-last-login', today);
+        // Could refresh daily rewards here
+      }
+    }
+
+    // Initialize
+    checkDailyReset();
   </script>
 </body>
 </html>

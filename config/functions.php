@@ -958,3 +958,652 @@ function calculateTaskDuration($start_time, $end_time) {
     }
 }
 ?>
+
+<?php
+// Add these functions to the end of config/functions.php
+
+/**
+ * Get time tracking statistics for a user
+ * @param int $user_id User ID
+ * @return array Time tracking statistics
+ */
+function getTimeTrackingStats($user_id) {
+    $database = new Database();
+    
+    try {
+        // Get ongoing tasks count
+        $ongoing_query = "SELECT COUNT(*) as ongoing_tasks FROM tasks WHERE user_id = :user_id AND status IN ('todo', 'progress')";
+        $ongoing_result = $database->queryRow($ongoing_query, [':user_id' => $user_id]);
+        
+        // Get total time in seconds
+        $time_query = "SELECT SUM(duration) as total_duration FROM time_entries WHERE user_id = :user_id AND duration IS NOT NULL";
+        $time_result = $database->queryRow($time_query, [':user_id' => $user_id]);
+        
+        $total_seconds = $time_result['total_duration'] ?? 0;
+        $hours = floor($total_seconds / 3600);
+        $minutes = floor(($total_seconds % 3600) / 60);
+        
+        return [
+            'ongoing_tasks' => $ongoing_result['ongoing_tasks'] ?? 0,
+            'total_hours' => $hours,
+            'total_minutes' => $minutes,
+            'formatted_time' => sprintf('%dH %dM', $hours, $minutes)
+        ];
+        
+    } catch (Exception $e) {
+        error_log("Error getting time tracking stats: " . $e->getMessage());
+        return [
+            'ongoing_tasks' => 0,
+            'total_hours' => 0,
+            'total_minutes' => 0,
+            'formatted_time' => '0H 0M'
+        ];
+    }
+}
+
+/**
+ * Get time entries for a user
+ * @param int $user_id User ID
+ * @param int $limit Number of entries to return
+ * @return array Time entries
+ */
+function getTimeEntries($user_id, $limit = 50) {
+    $database = new Database();
+    
+    try {
+        $query = "SELECT te.*, t.title as task_title, c.name as course_name, c.code as course_code
+                  FROM time_entries te
+                  LEFT JOIN tasks t ON te.task_id = t.id
+                  LEFT JOIN courses c ON te.course_id = c.id
+                  WHERE te.user_id = :user_id
+                  ORDER BY te.date DESC, te.created_at DESC
+                  LIMIT :limit";
+        
+        $stmt = $database->getConnection()->prepare($query);
+        $stmt->bindParam(':user_id', $user_id, PDO::PARAM_INT);
+        $stmt->bindParam(':limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+        
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        
+    } catch (Exception $e) {
+        error_log("Error getting time entries: " . $e->getMessage());
+        return [];
+    }
+}
+
+/**
+ * Start a new time entry
+ * @param int $user_id User ID
+ * @param array $entry_data Time entry data
+ * @return int|false Time entry ID or false on error
+ */
+function startTimeEntry($user_id, $entry_data) {
+    $database = new Database();
+    
+    try {
+        $data = [
+            'user_id' => $user_id,
+            'title' => cleanInput($entry_data['title']),
+            'description' => cleanInput($entry_data['description'] ?? ''),
+            'task_id' => !empty($entry_data['task_id']) ? (int)$entry_data['task_id'] : null,
+            'course_id' => !empty($entry_data['course_id']) ? (int)$entry_data['course_id'] : null,
+            'start_time' => date('Y-m-d H:i:s'),
+            'date' => date('Y-m-d')
+        ];
+        
+        return $database->insert('time_entries', $data);
+        
+    } catch (Exception $e) {
+        error_log("Error starting time entry: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Stop a time entry
+ * @param int $entry_id Time entry ID
+ * @param int $user_id User ID (for security)
+ * @return bool Success status
+ */
+function stopTimeEntry($entry_id, $user_id) {
+    $database = new Database();
+    
+    try {
+        // Get the time entry
+        $entry = $database->queryRow(
+            "SELECT * FROM time_entries WHERE id = :id AND user_id = :user_id AND end_time IS NULL",
+            [':id' => $entry_id, ':user_id' => $user_id]
+        );
+        
+        if (!$entry) {
+            return false;
+        }
+        
+        $end_time = date('Y-m-d H:i:s');
+        $start_time = $entry['start_time'];
+        
+        // Calculate duration in seconds
+        $duration = strtotime($end_time) - strtotime($start_time);
+        
+        $update_data = [
+            'end_time' => $end_time,
+            'duration' => $duration
+        ];
+        
+        $success = $database->update('time_entries', $update_data, 'id = :id AND user_id = :user_id', [
+            ':id' => $entry_id, 
+            ':user_id' => $user_id
+        ]);
+        
+        return $success > 0;
+        
+    } catch (Exception $e) {
+        error_log("Error stopping time entry: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Get active time entry for user
+ * @param int $user_id User ID
+ * @return array|null Active time entry or null
+ */
+function getActiveTimeEntry($user_id) {
+    $database = new Database();
+    
+    try {
+        return $database->queryRow(
+            "SELECT * FROM time_entries WHERE user_id = :user_id AND end_time IS NULL ORDER BY start_time DESC LIMIT 1",
+            [':user_id' => $user_id]
+        );
+    } catch (Exception $e) {
+        error_log("Error getting active time entry: " . $e->getMessage());
+        return null;
+    }
+}
+
+/**
+ * Delete a time entry
+ * @param int $entry_id Time entry ID
+ * @param int $user_id User ID (for security)
+ * @return bool Success status
+ */
+function deleteTimeEntry($entry_id, $user_id) {
+    $database = new Database();
+    
+    try {
+        $success = $database->delete('time_entries', 'id = :id AND user_id = :user_id', [
+            ':id' => $entry_id, 
+            ':user_id' => $user_id
+        ]);
+        
+        return $success > 0;
+        
+    } catch (Exception $e) {
+        error_log("Error deleting time entry: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Format duration seconds to human readable format
+ * @param int $seconds Duration in seconds
+ * @return string Formatted duration
+ */
+function formatDuration($seconds) {
+    if ($seconds < 60) {
+        return '00:00:' . str_pad($seconds, 2, '0', STR_PAD_LEFT);
+    }
+    
+    $hours = floor($seconds / 3600);
+    $minutes = floor(($seconds % 3600) / 60);
+    $secs = $seconds % 60;
+    
+    return sprintf('%02d:%02d:%02d', $hours, $minutes, $secs);
+}
+
+/**
+ * Get task icon based on task/course name
+ * @param string $name Task or course name
+ * @return string Icon/emoji
+ */
+function getTaskIcon($name) {
+    $name_lower = strtolower($name);
+    
+    if (strpos($name_lower, 'programming') !== false || strpos($name_lower, 'tp') !== false) {
+        return '💻';
+    } elseif (strpos($name_lower, 'fyp') !== false) {
+        return '🎯';
+    } elseif (strpos($name_lower, 'harta') !== false || strpos($name_lower, 'property') !== false) {
+        return '🏠';
+    } else {
+        return '📋';
+    }
+}
+
+/**
+ * Get task color class based on task/course name
+ * @param string $name Task or course name
+ * @return string CSS class name
+ */
+function getTaskColorClass($name) {
+    $name_lower = strtolower($name);
+    
+    if (strpos($name_lower, 'programming') !== false || strpos($name_lower, 'tp') !== false) {
+        return 'programming-icon';
+    } elseif (strpos($name_lower, 'fyp') !== false) {
+        return 'fyp-icon';
+    } elseif (strpos($name_lower, 'harta') !== false || strpos($name_lower, 'property') !== false) {
+        return 'harta-icon';
+    } else {
+        return 'default-icon';
+    }
+}
+?>
+
+<?php
+// Add these functions to the end of config/functions.php
+
+/**
+ * Get user progress and reward statistics
+ * @param int $user_id User ID
+ * @return array User progress data
+ */
+function getUserProgress($user_id) {
+    $database = new Database();
+    
+    try {
+        // Check if user_progress table exists, if not create default
+        $progress_query = "SELECT * FROM user_progress WHERE user_id = :user_id";
+        $progress = $database->queryRow($progress_query, [':user_id' => $user_id]);
+        
+        if (!$progress) {
+            // Create default progress record
+            $default_progress = [
+                'user_id' => $user_id,
+                'total_badges' => 0,
+                'daily_streak' => 0,
+                'total_points' => 0,
+                'last_daily_claim' => null,
+                'created_at' => date('Y-m-d H:i:s')
+            ];
+            
+            // Try to insert, ignore if table doesn't exist
+            try {
+                $database->insert('user_progress', $default_progress);
+                $progress = $default_progress;
+            } catch (Exception $e) {
+                // Table might not exist, return default values
+                $progress = $default_progress;
+            }
+        }
+        
+        return $progress;
+        
+    } catch (Exception $e) {
+        error_log("Error getting user progress: " . $e->getMessage());
+        return [
+            'user_id' => $user_id,
+            'total_badges' => 0,
+            'daily_streak' => 0,
+            'total_points' => 0,
+            'last_daily_claim' => null
+        ];
+    }
+}
+
+/**
+ * Get user's current ranking among all users
+ * @param int $user_id User ID
+ * @return int User's rank
+ */
+function getUserRanking($user_id) {
+    $database = new Database();
+    
+    try {
+        // Calculate ranking based on completed tasks and points
+        $task_stats = getTaskStatistics($user_id);
+        $completed_tasks = $task_stats['done_tasks'] ?? 0;
+        
+        // Simple ranking: count users with more completed tasks
+        $ranking_query = "SELECT COUNT(DISTINCT t.user_id) + 1 as user_rank
+                         FROM tasks t 
+                         WHERE t.status = 'done'
+                         GROUP BY t.user_id
+                         HAVING COUNT(t.id) > :completed_tasks";
+        
+        $result = $database->queryRow($ranking_query, [':completed_tasks' => $completed_tasks]);
+        
+        return $result['user_rank'] ?? 1;
+        
+    } catch (Exception $e) {
+        error_log("Error getting user ranking: " . $e->getMessage());
+        return 1; // Default to rank 1
+    }
+}
+
+/**
+ * Check reward eligibility for a user
+ * @param int $user_id User ID
+ * @return array Reward eligibility status
+ */
+function checkRewardEligibility($user_id) {
+    $database = new Database();
+    $progress = getUserProgress($user_id);
+    $task_stats = getTaskStatistics($user_id);
+    
+    $rewards = [
+        'daily' => [
+            'eligible' => false,
+            'claimed' => false,
+            'title' => 'Daily reward',
+            'description' => 'Check in daily to claim this reward',
+            'points' => 10
+        ],
+        'first_task' => [
+            'eligible' => false,
+            'claimed' => false,
+            'title' => 'Completed One Task',
+            'description' => 'Complete your first task',
+            'points' => 25
+        ],
+        'ten_tasks' => [
+            'eligible' => false,
+            'claimed' => false,
+            'title' => 'Completed more than Ten Task',
+            'description' => 'Complete 10 or more tasks',
+            'points' => 100
+        ]
+    ];
+    
+    // Check daily reward eligibility
+    $last_claim = $progress['last_daily_claim'];
+    $today = date('Y-m-d');
+    
+    if (!$last_claim || $last_claim !== $today) {
+        $rewards['daily']['eligible'] = true;
+    } else {
+        $rewards['daily']['claimed'] = true;
+    }
+    
+    // Check first task completion
+    $completed_tasks = $task_stats['done_tasks'] ?? 0;
+    if ($completed_tasks >= 1) {
+        $rewards['first_task']['eligible'] = true;
+        
+        // Check if already claimed
+        if (hasClaimedReward($user_id, 'first_task')) {
+            $rewards['first_task']['claimed'] = true;
+            $rewards['first_task']['eligible'] = false;
+        }
+    }
+    
+    // Check ten tasks completion
+    if ($completed_tasks >= 10) {
+        $rewards['ten_tasks']['eligible'] = true;
+        
+        // Check if already claimed
+        if (hasClaimedReward($user_id, 'ten_tasks')) {
+            $rewards['ten_tasks']['claimed'] = true;
+            $rewards['ten_tasks']['eligible'] = false;
+        }
+    }
+    
+    return $rewards;
+}
+
+/**
+ * Check if user has claimed a specific reward
+ * @param int $user_id User ID
+ * @param string $reward_type Reward type
+ * @return bool True if claimed
+ */
+function hasClaimedReward($user_id, $reward_type) {
+    $database = new Database();
+    
+    try {
+        $query = "SELECT id FROM user_rewards WHERE user_id = :user_id AND reward_type = :reward_type";
+        $result = $database->queryRow($query, [':user_id' => $user_id, ':reward_type' => $reward_type]);
+        
+        return !empty($result);
+        
+    } catch (Exception $e) {
+        // Table might not exist, return false
+        return false;
+    }
+}
+
+/**
+ * Claim a reward for user
+ * @param int $user_id User ID
+ * @param string $reward_type Reward type
+ * @return array Result with success status and message
+ */
+function claimReward($user_id, $reward_type) {
+    $database = new Database();
+    
+    try {
+        $rewards = checkRewardEligibility($user_id);
+        
+        if (!isset($rewards[$reward_type])) {
+            return ['success' => false, 'message' => 'Invalid reward type'];
+        }
+        
+        $reward = $rewards[$reward_type];
+        
+        if ($reward['claimed']) {
+            return ['success' => false, 'message' => 'Reward already claimed'];
+        }
+        
+        if (!$reward['eligible']) {
+            return ['success' => false, 'message' => 'Not eligible for this reward'];
+        }
+        
+        // Record the reward claim
+        try {
+            $reward_data = [
+                'user_id' => $user_id,
+                'reward_type' => $reward_type,
+                'points_earned' => $reward['points'],
+                'claimed_at' => date('Y-m-d H:i:s')
+            ];
+            
+            $database->insert('user_rewards', $reward_data);
+        } catch (Exception $e) {
+            // Table might not exist, continue anyway
+            error_log("Could not insert into user_rewards table: " . $e->getMessage());
+        }
+        
+        // Update user progress
+        $progress = getUserProgress($user_id);
+        $new_badges = ($progress['total_badges'] ?? 0) + 1;
+        $new_points = ($progress['total_points'] ?? 0) + $reward['points'];
+        
+        $update_data = [
+            'total_badges' => $new_badges,
+            'total_points' => $new_points
+        ];
+        
+        // Special handling for daily reward
+        if ($reward_type === 'daily') {
+            $update_data['last_daily_claim'] = date('Y-m-d');
+            $update_data['daily_streak'] = ($progress['daily_streak'] ?? 0) + 1;
+        }
+        
+        // Update or insert user progress
+        try {
+            $existing = $database->queryRow("SELECT id FROM user_progress WHERE user_id = :user_id", [':user_id' => $user_id]);
+            
+            if ($existing) {
+                $database->update('user_progress', $update_data, 'user_id = :user_id', [':user_id' => $user_id]);
+            } else {
+                $update_data['user_id'] = $user_id;
+                $database->insert('user_progress', $update_data);
+            }
+        } catch (Exception $e) {
+            error_log("Could not update user_progress: " . $e->getMessage());
+        }
+        
+        return [
+            'success' => true, 
+            'message' => 'Reward claimed successfully!',
+            'reward' => $reward,
+            'new_badges' => $new_badges,
+            'points_earned' => $reward['points']
+        ];
+        
+    } catch (Exception $e) {
+        error_log("Error claiming reward: " . $e->getMessage());
+        return ['success' => false, 'message' => 'Error claiming reward'];
+    }
+}
+
+/**
+ * Get user's collected badges
+ * @param int $user_id User ID
+ * @return array Collection of badges
+ */
+function getUserBadges($user_id) {
+    $rewards = checkRewardEligibility($user_id);
+    $badges = [];
+    
+    foreach ($rewards as $type => $reward) {
+        if ($reward['claimed']) {
+            $badge = [
+                'type' => $type,
+                'title' => $reward['title'],
+                'description' => $reward['description'],
+                'icon' => getBadgeIcon($type),
+                'color' => getBadgeColor($type)
+            ];
+            $badges[] = $badge;
+        }
+    }
+    
+    // Add some default badges for display
+    $default_badges = [
+        ['type' => 'daily', 'title' => 'Daily Achiever', 'icon' => '🏆', 'color' => '#FFD700'],
+        ['type' => 'task', 'title' => 'Task Master', 'icon' => '🎯', 'color' => '#dc3545'],
+        ['type' => 'time', 'title' => 'Time Keeper', 'icon' => '⏰', 'color' => '#17a2b8'],
+        ['type' => 'streak', 'title' => '7-Day Streak', 'icon' => '🔥', 'color' => '#fd7e14'],
+        ['type' => 'productivity', 'title' => 'Productivity Pro', 'icon' => '📈', 'color' => '#28a745'],
+        ['type' => 'milestone', 'title' => 'Milestone', 'icon' => '🌟', 'color' => '#6f42c1']
+    ];
+    
+    return array_merge($badges, array_slice($default_badges, 0, 6 - count($badges)));
+}
+
+/**
+ * Get badge icon for reward type
+ * @param string $type Reward type
+ * @return string Badge icon
+ */
+function getBadgeIcon($type) {
+    $icons = [
+        'daily' => '🏆',
+        'first_task' => '🎯',
+        'ten_tasks' => '🌟',
+        'time_keeper' => '⏰',
+        'streak' => '🔥',
+        'productivity' => '📈'
+    ];
+    
+    return $icons[$type] ?? '🏅';
+}
+
+/**
+ * Get badge color for reward type
+ * @param string $type Reward type
+ * @return string Color hex code
+ */
+function getBadgeColor($type) {
+    $colors = [
+        'daily' => '#FFD700',
+        'first_task' => '#dc3545',
+        'ten_tasks' => '#B8860B',
+        'time_keeper' => '#17a2b8',
+        'streak' => '#fd7e14',
+        'productivity' => '#28a745'
+    ];
+    
+    return $colors[$type] ?? '#8B7355';
+}
+
+/**
+ * Get leaderboard data
+ * @param int $limit Number of top users to return
+ * @return array Leaderboard data
+ */
+function getLeaderboard($limit = 10) {
+    $database = new Database();
+    
+    try {
+        $query = "SELECT u.id, u.name, u.email,
+                  COUNT(t.id) as completed_tasks,
+                  COALESCE(up.total_points, 0) as total_points,
+                  COALESCE(up.total_badges, 0) as total_badges
+                  FROM users u
+                  LEFT JOIN tasks t ON u.id = t.user_id AND t.status = 'done'
+                  LEFT JOIN user_progress up ON u.id = up.user_id
+                  WHERE u.status = 'active'
+                  GROUP BY u.id, u.name, u.email, up.total_points, up.total_badges
+                  ORDER BY completed_tasks DESC, total_points DESC
+                  LIMIT :limit";
+        
+        $stmt = $database->getConnection()->prepare($query);
+        $stmt->bindParam(':limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+        
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        
+    } catch (Exception $e) {
+        error_log("Error getting leaderboard: " . $e->getMessage());
+        return [];
+    }
+}
+
+/**
+ * Initialize reward tables if they don't exist
+ * @return bool Success status
+ */
+function initializeRewardTables() {
+    $database = new Database();
+    
+    try {
+        // Create user_progress table if it doesn't exist
+        $progress_table = "CREATE TABLE IF NOT EXISTS user_progress (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            total_badges INT DEFAULT 0,
+            total_points INT DEFAULT 0,
+            daily_streak INT DEFAULT 0,
+            last_daily_claim DATE NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY unique_user (user_id),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )";
+        
+        // Create user_rewards table if it doesn't exist
+        $rewards_table = "CREATE TABLE IF NOT EXISTS user_rewards (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            reward_type VARCHAR(50) NOT NULL,
+            points_earned INT DEFAULT 0,
+            claimed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY unique_user_reward (user_id, reward_type),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )";
+        
+        $database->getConnection()->exec($progress_table);
+        $database->getConnection()->exec($rewards_table);
+        
+        return true;
+        
+    } catch (Exception $e) {
+        error_log("Error initializing reward tables: " . $e->getMessage());
+        return false;
+    }
+}
+?>
