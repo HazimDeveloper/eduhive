@@ -3,206 +3,91 @@ require_once 'config/database.php';
 require_once 'config/session.php';
 require_once 'config/functions.php';
 
-// Redirect if already logged in
+// If user is already logged in, redirect to dashboard
 if (isLoggedIn()) {
     header("Location: dashboard.php");
     exit();
 }
 
 // Check if registration is enabled
-$registration_enabled = getSetting('registration_enabled', true);
+$registration_enabled = getBasicSetting('registration_enabled', true);
 if (!$registration_enabled) {
-    setFlashMessage('Registration is currently disabled.', 'error');
+    setMessage('Registration is currently disabled.', 'error');
     header("Location: login.php");
     exit();
 }
 
-// Get flash message if any
-$flash_message = getFlashMessage();
+// Get any existing message
+$message = getMessage();
 
 // Handle registration form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Verify CSRF token
-    if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
-        setFlashMessage('Security token invalid. Please try again.', 'error');
-        header("Location: register.php");
-        exit();
-    }
-    
-    $name = sanitizeInput($_POST['name'] ?? '');
-    $email = sanitizeInput($_POST['email'] ?? '');
+    $name = cleanInput($_POST['name'] ?? '');
+    $email = cleanInput($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
     $confirm_password = $_POST['confirm_password'] ?? '';
-    $terms_accepted = isset($_POST['terms_accepted']);
     
-    $errors = [];
-    
-    // Validate input
+    // Basic validation
     if (empty($name)) {
-        $errors[] = 'Full name is required.';
+        setMessage('Please enter your full name.', 'error');
     } elseif (strlen($name) < 2) {
-        $errors[] = 'Name must be at least 2 characters long.';
-    } elseif (strlen($name) > 100) {
-        $errors[] = 'Name must be less than 100 characters.';
-    }
-    
-    if (empty($email)) {
-        $errors[] = 'Email address is required.';
-    } elseif (!validateEmail($email)) {
-        $errors[] = 'Please enter a valid email address.';
-    }
-    
-    if (empty($password)) {
-        $errors[] = 'Password is required.';
-    } else {
-        $password_validation = validatePassword($password, 6);
-        if (!$password_validation['valid']) {
-            $errors[] = $password_validation['message'];
-        }
-    }
-    
-    if (empty($confirm_password)) {
-        $errors[] = 'Please confirm your password.';
+        setMessage('Name must be at least 2 characters long.', 'error');
+    } elseif (empty($email)) {
+        setMessage('Please enter your email address.', 'error');
+    } elseif (!isValidEmail($email)) {
+        setMessage('Please enter a valid email address.', 'error');
+    } elseif (empty($password)) {
+        setMessage('Please enter a password.', 'error');
+    } elseif (strlen($password) < 6) {
+        setMessage('Password must be at least 6 characters long.', 'error');
+    } elseif (empty($confirm_password)) {
+        setMessage('Please confirm your password.', 'error');
     } elseif ($password !== $confirm_password) {
-        $errors[] = 'Passwords do not match.';
-    }
-    
-    if (!$terms_accepted) {
-        $errors[] = 'You must accept the Terms of Service and Privacy Policy.';
-    }
-    
-    // Check if email already exists
-    if (empty($errors)) {
+        setMessage('Passwords do not match.', 'error');
+    } else {
+        // Try to create account
         $database = new Database();
         $db = $database->getConnection();
         
         try {
+            // Check if email already exists
             $check_query = "SELECT id FROM users WHERE email = :email";
             $stmt = $db->prepare($check_query);
             $stmt->bindParam(':email', $email);
             $stmt->execute();
             
             if ($stmt->rowCount() > 0) {
-                $errors[] = 'An account with this email address already exists.';
-            }
-        } catch (PDOException $e) {
-            error_log("Database error during registration: " . $e->getMessage());
-            $errors[] = 'A system error occurred. Please try again later.';
-        }
-    }
-    
-    // If no errors, create the user
-    if (empty($errors)) {
-        try {
-            $hashed_password = password_hash($password, PASSWORD_DEFAULT);
-            $email_verification_required = getSetting('email_verification_required', false);
-            
-            $user_data = [
-                'name' => $name,
-                'email' => $email,
-                'password' => $hashed_password,
-                'email_verified' => !$email_verification_required,
-                'role' => 'user',
-                'created_at' => date('Y-m-d H:i:s')
-            ];
-            
-            $user_id = $database->insert('users', $user_data);
-            
-            if ($user_id) {
-                // Create initial user progress record
-                $database->insert('user_progress', [
-                    'user_id' => $user_id,
-                    'total_badges' => 0,
-                    'total_points' => 0,
-                    'last_login' => date('Y-m-d')
-                ]);
+                setMessage('An account with this email address already exists.', 'error');
+            } else {
+                // Create new user
+                $hashed_password = password_hash($password, PASSWORD_DEFAULT);
                 
-                // Log registration activity
-                logActivity($user_id, 'user_registered', 'New user registered: ' . $email);
+                $insert_query = "INSERT INTO users (name, email, password, role, status, created_at) 
+                                VALUES (:name, :email, :password, 'user', 'active', NOW())";
+                $stmt = $db->prepare($insert_query);
+                $stmt->bindParam(':name', $name);
+                $stmt->bindParam(':email', $email);
+                $stmt->bindParam(':password', $hashed_password);
                 
-                // Send welcome notification
-                createNotification($user_id, 'web', 'Welcome to EduHive!', 'Thank you for joining EduHive. Start by creating your first task or course.');
-                
-                if ($email_verification_required) {
-                    // Send verification email
-                    $verification_token = bin2hex(random_bytes(32));
-                    $expires_at = date('Y-m-d H:i:s', strtotime('+24 hours'));
-                    
-                    $database->insert('email_tokens', [
-                        'user_id' => $user_id,
-                        'token' => $verification_token,
-                        'type' => 'verification',
-                        'expires_at' => $expires_at
-                    ]);
-                    
-                    $verification_link = "http://" . $_SERVER['HTTP_HOST'] . "/verify_email.php?token=" . $verification_token;
-                    $email_subject = "Verify Your EduHive Account";
-                    $email_body = "
-                    <html>
-                    <body>
-                        <h2>Welcome to EduHive, " . htmlspecialchars($name) . "!</h2>
-                        <p>Thank you for registering. Please click the link below to verify your email address:</p>
-                        <p><a href='" . $verification_link . "' style='background: #8B7355; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;'>Verify Email</a></p>
-                        <p>Or copy and paste this link into your browser:</p>
-                        <p>" . $verification_link . "</p>
-                        <p>This link will expire in 24 hours.</p>
-                        <br>
-                        <p>Best regards,<br>The EduHive Team</p>
-                    </body>
-                    </html>
-                    ";
-                    
-                    if (sendEmail($email, $email_subject, $email_body)) {
-                        $success_message = 'Registration successful! Please check your email to verify your account.';
-                    } else {
-                        $success_message = 'Registration successful! However, we could not send the verification email. Please contact support.';
-                    }
-                    
-                    setFlashMessage($success_message, 'success');
-                } else {
-                    // Auto-login if email verification not required
-                    $user_data['id'] = $user_id;
-                    if (loginUser($user_data)) {
-                        setFlashMessage('Welcome to EduHive, ' . $name . '! Your account has been created successfully.', 'success');
-                        
-                        if (isAjaxRequest()) {
-                            jsonResponse(true, 'Registration successful', [
-                                'redirect' => 'dashboard.php'
-                            ]);
-                        } else {
-                            header("Location: dashboard.php");
-                            exit();
-                        }
-                    }
-                }
-                
-                if (isAjaxRequest()) {
-                    jsonResponse(true, $success_message ?? 'Registration successful');
-                } else {
+                if ($stmt->execute()) {
+                    // Registration successful
+                    setMessage('Account created successfully! You can now log in.', 'success');
                     header("Location: login.php");
                     exit();
+                } else {
+                    setMessage('Failed to create account. Please try again.', 'error');
                 }
-            } else {
-                $errors[] = 'Failed to create account. Please try again.';
             }
             
         } catch (PDOException $e) {
-            error_log("Database error during user creation: " . $e->getMessage());
-            $errors[] = 'A system error occurred. Please try again later.';
+            error_log("Registration error: " . $e->getMessage());
+            setMessage('System error. Please try again later.', 'error');
         }
     }
     
-    // If we have errors and this is an AJAX request
-    if (!empty($errors) && isAjaxRequest()) {
-        jsonResponse(false, implode(' ', $errors));
-    }
-    
-    // Set flash message for errors
-    if (!empty($errors)) {
-        setFlashMessage(implode(' ', $errors), 'error');
-        header("Location: register.php");
-        exit();
-    }
+    // Redirect to avoid form resubmission
+    header("Location: register.php");
+    exit();
 }
 ?>
 <!DOCTYPE html>
@@ -305,8 +190,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             letter-spacing: 2px;
         }
 
-        /* Flash Message */
-        .flash-message {
+        /* Message Styles */
+        .message {
             padding: 15px 20px;
             margin-bottom: 30px;
             border-radius: 12px;
@@ -314,22 +199,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             animation: slideDown 0.3s ease;
         }
 
-        .flash-message.success {
+        .message.success {
             background-color: #d4edda;
             color: #155724;
             border: 1px solid #c3e6cb;
         }
 
-        .flash-message.error {
+        .message.error {
             background-color: #f8d7da;
             color: #721c24;
             border: 1px solid #f5c6cb;
         }
 
-        .flash-message.warning {
-            background-color: #fff3cd;
-            color: #856404;
-            border: 1px solid #ffeaa7;
+        .message.info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
         }
 
         @keyframes slideDown {
@@ -384,6 +269,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             font-weight: 500;
             text-align: left;
             padding-left: 25px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .password-strength.visible {
+            opacity: 1;
         }
 
         .password-strength.weak {
@@ -398,37 +289,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             color: #28a745;
         }
 
-        /* Checkbox styling */
-        .checkbox-group {
-            display: flex;
-            align-items: flex-start;
-            gap: 12px;
+        /* Password match indicator */
+        .password-match {
+            margin-top: 8px;
+            font-size: 12px;
+            font-weight: 500;
             text-align: left;
-            margin: 10px 0;
+            padding-left: 25px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
         }
 
-        .checkbox-group input[type="checkbox"] {
-            width: 20px;
-            height: 20px;
-            cursor: pointer;
-            margin-top: 2px;
-            flex-shrink: 0;
+        .password-match.visible {
+            opacity: 1;
         }
 
-        .checkbox-group label {
-            font-size: 14px;
-            color: #666;
-            cursor: pointer;
-            line-height: 1.4;
+        .password-match.match {
+            color: #28a745;
         }
 
-        .checkbox-group label a {
-            color: #4A90A4;
-            text-decoration: none;
-        }
-
-        .checkbox-group label a:hover {
-            text-decoration: underline;
+        .password-match.no-match {
+            color: #dc3545;
         }
 
         /* Submit Button */
@@ -444,8 +325,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             cursor: pointer;
             transition: all 0.3s ease;
             margin-top: 20px;
-            position: relative;
-            overflow: hidden;
         }
 
         .submit-btn:hover {
@@ -454,38 +333,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             box-shadow: 0 8px 25px rgba(196, 164, 132, 0.4);
         }
 
-        .submit-btn:disabled {
-            opacity: 0.7;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .submit-btn.loading {
-            color: transparent;
-        }
-
-        .spinner {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 20px;
-            height: 20px;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            border-radius: 50%;
-            border-top-color: white;
-            animation: spin 1s ease-in-out infinite;
-            display: none;
-        }
-
-        .submit-btn.loading .spinner {
-            display: block;
-        }
-
-        @keyframes spin {
-            to {
-                transform: translate(-50%, -50%) rotate(360deg);
-            }
+        .submit-btn:active {
+            transform: translateY(0);
         }
 
         /* Footer Links */
@@ -596,11 +445,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 font-size: 14px;
             }
 
-            .checkbox-group {
-                font-size: 13px;
-            }
-
-            .password-strength {
+            .password-strength,
+            .password-match {
                 font-size: 11px;
             }
         }
@@ -621,45 +467,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="register-content">
             <h1 class="page-title">CREATE YOUR ACCOUNT</h1>
             
-            <!-- Flash Message -->
-            <?php if ($flash_message): ?>
-                <div class="flash-message <?php echo htmlspecialchars($flash_message['type']); ?>">
-                    <?php echo htmlspecialchars($flash_message['message']); ?>
+            <!-- Show Message if exists -->
+            <?php if ($message): ?>
+                <div class="message <?php echo htmlspecialchars($message['type']); ?>">
+                    <?php echo htmlspecialchars($message['text']); ?>
                 </div>
             <?php endif; ?>
             
             <!-- Register Form -->
-            <form id="registerForm" class="register-form" method="POST">
-                <?php echo getCSRFTokenField(); ?>
-                
+            <form class="register-form" method="POST">
                 <div class="form-group">
-                    <input type="text" id="name" name="name" class="form-input" placeholder="Full Name" required autocomplete="name" maxlength="100">
+                    <input type="text" name="name" class="form-input" placeholder="Full Name" required autocomplete="name" maxlength="100" value="<?php echo htmlspecialchars($_POST['name'] ?? ''); ?>">
                 </div>
                 
                 <div class="form-group">
-                    <input type="email" id="email" name="email" class="form-input" placeholder="Email" required autocomplete="email">
+                    <input type="email" name="email" class="form-input" placeholder="Email" required autocomplete="email" value="<?php echo htmlspecialchars($_POST['email'] ?? ''); ?>">
                 </div>
                 
                 <div class="form-group">
-                    <input type="password" id="password" name="password" class="form-input" placeholder="Password" required autocomplete="new-password" minlength="6">
+                    <input type="password" name="password" id="password" class="form-input" placeholder="Password" required autocomplete="new-password" minlength="6">
                     <div id="passwordStrength" class="password-strength"></div>
                 </div>
                 
                 <div class="form-group">
-                    <input type="password" id="confirm_password" name="confirm_password" class="form-input" placeholder="Confirm Password" required autocomplete="new-password">
-                    <div id="passwordMatch" class="password-strength"></div>
+                    <input type="password" name="confirm_password" id="confirm_password" class="form-input" placeholder="Confirm Password" required autocomplete="new-password">
+                    <div id="passwordMatch" class="password-match"></div>
                 </div>
                 
-                <div class="checkbox-group">
-                    <input type="checkbox" id="terms_accepted" name="terms_accepted" value="1" required>
-                    <label for="terms_accepted">
-                        I agree to the <a href="#" target="_blank">Terms of Service</a> and <a href="#" target="_blank">Privacy Policy</a>
-                    </label>
-                </div>
-                
-                <button type="submit" id="registerBtn" class="submit-btn">
-                    <span class="btn-text">Create Account</span>
-                    <div class="spinner"></div>
+                <button type="submit" class="submit-btn">
+                    Create Account
                 </button>
             </form>
             
@@ -673,8 +509,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            const registerForm = document.getElementById('registerForm');
-            const registerBtn = document.getElementById('registerBtn');
             const passwordField = document.getElementById('password');
             const confirmPasswordField = document.getElementById('confirm_password');
             const passwordStrength = document.getElementById('passwordStrength');
@@ -685,8 +519,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 const password = this.value;
                 const strength = checkPasswordStrength(password);
                 
-                passwordStrength.textContent = strength.text;
-                passwordStrength.className = `password-strength ${strength.class}`;
+                if (password.length === 0) {
+                    passwordStrength.textContent = '';
+                    passwordStrength.className = 'password-strength';
+                } else {
+                    passwordStrength.textContent = strength.text;
+                    passwordStrength.className = `password-strength visible ${strength.class}`;
+                }
                 
                 // Check password match if confirm field has value
                 if (confirmPasswordField.value) {
@@ -698,14 +537,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             confirmPasswordField.addEventListener('input', checkPasswordMatch);
             
             function checkPasswordStrength(password) {
-                if (password.length === 0) {
-                    return { text: '', class: '' };
+                if (password.length < 6) {
+                    return { text: 'Too short (minimum 6 characters)', class: 'weak' };
                 }
                 
                 let score = 0;
                 
                 // Length check
-                if (password.length >= 6) score++;
                 if (password.length >= 8) score++;
                 
                 // Character variety checks
@@ -714,9 +552,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (/[0-9]/.test(password)) score++;
                 if (/[^A-Za-z0-9]/.test(password)) score++;
                 
-                if (score < 3) {
+                if (score < 2) {
                     return { text: 'Weak password', class: 'weak' };
-                } else if (score < 5) {
+                } else if (score < 4) {
                     return { text: 'Medium strength', class: 'medium' };
                 } else {
                     return { text: 'Strong password', class: 'strong' };
@@ -729,117 +567,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 if (confirmPassword === '') {
                     passwordMatch.textContent = '';
-                    passwordMatch.className = 'password-strength';
+                    passwordMatch.className = 'password-match';
                 } else if (password === confirmPassword) {
                     passwordMatch.textContent = 'Passwords match';
-                    passwordMatch.className = 'password-strength strong';
+                    passwordMatch.className = 'password-match visible match';
                 } else {
                     passwordMatch.textContent = 'Passwords do not match';
-                    passwordMatch.className = 'password-strength weak';
-                }
-            }
-            
-            // Form submission
-            registerForm.addEventListener('submit', function(e) {
-                e.preventDefault();
-                
-                // Validate passwords match
-                if (passwordField.value !== confirmPasswordField.value) {
-                    showMessage('Passwords do not match.', 'error');
-                    return;
-                }
-                
-                // Show loading state
-                registerBtn.classList.add('loading');
-                registerBtn.disabled = true;
-                
-                // Get form data
-                const formData = new FormData(registerForm);
-                
-                // Submit form via AJAX
-                fetch('register.php', {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        // Success - show success message
-                        showMessage(data.message || 'Registration successful!', 'success');
-                        
-                        // Redirect after delay
-                        setTimeout(() => {
-                            if (data.data && data.data.redirect) {
-                                window.location.href = data.data.redirect;
-                            } else {
-                                window.location.href = 'login.php';
-                            }
-                        }, 2000);
-                    } else {
-                        // Error - show error message
-                        showMessage(data.message, 'error');
-                        
-                        // Reset form state
-                        registerBtn.classList.remove('loading');
-                        registerBtn.disabled = false;
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    showMessage('An error occurred. Please try again.', 'error');
-                    
-                    // Reset form state
-                    registerBtn.classList.remove('loading');
-                    registerBtn.disabled = false;
-                });
-            });
-            
-            function showMessage(message, type) {
-                // Remove existing messages
-                const existingMessage = document.querySelector('.flash-message');
-                if (existingMessage) {
-                    existingMessage.remove();
-                }
-                
-                // Create new message
-                const messageDiv = document.createElement('div');
-                messageDiv.className = `flash-message ${type}`;
-                messageDiv.textContent = message;
-                
-                // Insert before form
-                const registerContent = document.querySelector('.register-content');
-                const form = document.querySelector('.register-form');
-                registerContent.insertBefore(messageDiv, form);
-                
-                // Auto-remove error messages after 7 seconds
-                if (type === 'error') {
-                    setTimeout(() => {
-                        if (messageDiv.parentNode) {
-                            messageDiv.remove();
-                        }
-                    }, 7000);
+                    passwordMatch.className = 'password-match visible no-match';
                 }
             }
             
             // Auto-focus name field
-            document.getElementById('name').focus();
+            document.querySelector('input[name="name"]').focus();
             
             // Handle Enter key navigation
             const formInputs = document.querySelectorAll('.form-input');
             formInputs.forEach((input, index) => {
                 input.addEventListener('keypress', function(e) {
                     if (e.key === 'Enter') {
+                        e.preventDefault();
                         if (index < formInputs.length - 1) {
                             formInputs[index + 1].focus();
                         } else {
-                            registerForm.dispatchEvent(new Event('submit'));
+                            // Submit form on last field
+                            this.form.submit();
                         }
                     }
                 });
             });
             
             // Real-time email validation
-            document.getElementById('email').addEventListener('blur', function() {
+            document.querySelector('input[name="email"]').addEventListener('blur', function() {
                 const email = this.value;
                 if (email && !isValidEmail(email)) {
                     this.style.borderColor = '#dc3545';
@@ -851,6 +609,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             function isValidEmail(email) {
                 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
                 return emailRegex.test(email);
+            }
+            
+            // Auto-hide success messages after 4 seconds
+            const successMessage = document.querySelector('.message.success');
+            if (successMessage) {
+                setTimeout(function() {
+                    successMessage.style.opacity = '0';
+                    setTimeout(function() {
+                        successMessage.style.display = 'none';
+                    }, 300);
+                }, 4000);
             }
         });
     </script>

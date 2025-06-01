@@ -3,43 +3,35 @@ require_once 'config/database.php';
 require_once 'config/session.php';
 require_once 'config/functions.php';
 
-// Redirect if already logged in
+// If user is already logged in, redirect to dashboard
 if (isLoggedIn()) {
     header("Location: dashboard.php");
     exit();
 }
 
-// Check for remember me cookie
-checkRememberMeCookie();
-
-// Get flash message if any
-$flash_message = getFlashMessage();
+// Get any existing message
+$message = getMessage();
 
 // Handle login form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Verify CSRF token
-    if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
-        setFlashMessage('Security token invalid. Please try again.', 'error');
-        header("Location: login.php");
-        exit();
-    }
-    
-    $email = sanitizeInput($_POST['email'] ?? '');
+    $email = cleanInput($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
-    $remember_me = isset($_POST['remember_me']);
     
-    // Validate input
-    if (empty($email) || empty($password)) {
-        setFlashMessage('Please fill in all fields.', 'error');
-    } elseif (!validateEmail($email)) {
-        setFlashMessage('Please enter a valid email address.', 'error');
+    // Basic validation
+    if (empty($email)) {
+        setMessage('Please enter your email address.', 'error');
+    } elseif (empty($password)) {
+        setMessage('Please enter your password.', 'error');
+    } elseif (!isValidEmail($email)) {
+        setMessage('Please enter a valid email address.', 'error');
     } else {
-        // Get user from database
+        // Try to login
         $database = new Database();
         $db = $database->getConnection();
         
         try {
-            $query = "SELECT * FROM users WHERE email = :email";
+            // Get user from database
+            $query = "SELECT * FROM users WHERE email = :email AND status = 'active'";
             $stmt = $db->prepare($query);
             $stmt->bindParam(':email', $email);
             $stmt->execute();
@@ -47,55 +39,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($stmt->rowCount() > 0) {
                 $user = $stmt->fetch(PDO::FETCH_ASSOC);
                 
-                // Verify password
+                // Check password
                 if (password_verify($password, $user['password'])) {
-                    // Check if email is verified (if required)
-                    $email_verification_required = getSetting('email_verification_required', false);
-                    
-                    if ($email_verification_required && !$user['email_verified']) {
-                        setFlashMessage('Please verify your email address before logging in.', 'warning');
+                    // Password is correct - login user
+                    if (loginUser($user)) {
+                        // Update last login time
+                        $update_query = "UPDATE users SET last_login = NOW() WHERE id = :id";
+                        $update_stmt = $db->prepare($update_query);
+                        $update_stmt->bindParam(':id', $user['id']);
+                        $update_stmt->execute();
+                        
+                        // Login successful - redirect to dashboard
+                        setMessage('Welcome back, ' . $user['name'] . '!', 'success');
+                        header("Location: dashboard.php");
+                        exit();
                     } else {
-                        // Login successful
-                        if (loginUser($user, $remember_me)) {
-                            logActivity($user['id'], 'login_success', 'User logged in successfully');
-                            
-                            // Check if this is an AJAX request
-                            if (isAjaxRequest()) {
-                                jsonResponse(true, 'Login successful', [
-                                    'redirect' => $_SESSION['redirect_after_login'] ?? 'dashboard.php'
-                                ]);
-                            } else {
-                                setFlashMessage('Welcome back, ' . $user['name'] . '!', 'success');
-                                redirectAfterLogin();
-                            }
-                        } else {
-                            setFlashMessage('Login failed. Please try again.', 'error');
-                            logActivity($user['id'], 'login_failed', 'Login system error');
-                        }
+                        setMessage('Login failed. Please try again.', 'error');
                     }
                 } else {
-                    // Invalid password
-                    setFlashMessage('Invalid email or password.', 'error');
-                    logActivity($user['id'], 'login_failed', 'Invalid password attempt from IP: ' . getUserIP());
+                    // Wrong password
+                    setMessage('Invalid email or password.', 'error');
                 }
             } else {
-                // User not found
-                setFlashMessage('Invalid email or password.', 'error');
-                
-                // Log failed attempt without user ID
-                error_log("Failed login attempt for email: $email from IP: " . getUserIP());
+                // User not found or inactive
+                setMessage('Invalid email or password.', 'error');
             }
             
         } catch (PDOException $e) {
-            error_log("Database error during login: " . $e->getMessage());
-            setFlashMessage('A system error occurred. Please try again later.', 'error');
+            error_log("Login error: " . $e->getMessage());
+            setMessage('System error. Please try again later.', 'error');
         }
-    }
-    
-    // If AJAX request and we reach here, it means login failed
-    if (isAjaxRequest()) {
-        $flash = getFlashMessage();
-        jsonResponse(false, $flash['message'] ?? 'Login failed');
     }
     
     // Redirect to avoid form resubmission
@@ -203,8 +176,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             letter-spacing: 2px;
         }
 
-        /* Flash Message */
-        .flash-message {
+        /* Message Styles */
+        .message {
             padding: 15px 20px;
             margin-bottom: 30px;
             border-radius: 12px;
@@ -212,22 +185,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             animation: slideDown 0.3s ease;
         }
 
-        .flash-message.success {
+        .message.success {
             background-color: #d4edda;
             color: #155724;
             border: 1px solid #c3e6cb;
         }
 
-        .flash-message.error {
+        .message.error {
             background-color: #f8d7da;
             color: #721c24;
             border: 1px solid #f5c6cb;
         }
 
-        .flash-message.warning {
-            background-color: #fff3cd;
-            color: #856404;
-            border: 1px solid #ffeaa7;
+        .message.info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
         }
 
         @keyframes slideDown {
@@ -288,8 +261,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             cursor: pointer;
             transition: all 0.3s ease;
             margin-top: 20px;
-            position: relative;
-            overflow: hidden;
         }
 
         .submit-btn:hover {
@@ -298,38 +269,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             box-shadow: 0 8px 25px rgba(196, 164, 132, 0.4);
         }
 
-        .submit-btn:disabled {
-            opacity: 0.7;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .submit-btn.loading {
-            color: transparent;
-        }
-
-        .spinner {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 20px;
-            height: 20px;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            border-radius: 50%;
-            border-top-color: white;
-            animation: spin 1s ease-in-out infinite;
-            display: none;
-        }
-
-        .submit-btn.loading .spinner {
-            display: block;
-        }
-
-        @keyframes spin {
-            to {
-                transform: translate(-50%, -50%) rotate(360deg);
-            }
+        .submit-btn:active {
+            transform: translateY(0);
         }
 
         /* Footer Links */
@@ -463,28 +404,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="login-content">
             <h1 class="page-title">LOG IN TO YOUR ACCOUNT</h1>
             
-            <!-- Flash Message -->
-            <?php if ($flash_message): ?>
-                <div class="flash-message <?php echo htmlspecialchars($flash_message['type']); ?>">
-                    <?php echo htmlspecialchars($flash_message['message']); ?>
+            <!-- Show Message if exists -->
+            <?php if ($message): ?>
+                <div class="message <?php echo htmlspecialchars($message['type']); ?>">
+                    <?php echo htmlspecialchars($message['text']); ?>
                 </div>
             <?php endif; ?>
             
             <!-- Login Form -->
-            <form id="loginForm" class="login-form" method="POST">
-                <?php echo getCSRFTokenField(); ?>
-                
+            <form class="login-form" method="POST">
                 <div class="form-group">
-                    <input type="email" id="email" name="email" class="form-input" placeholder="Email" required autocomplete="email">
+                    <input type="email" name="email" class="form-input" placeholder="Email" required autocomplete="email" value="<?php echo htmlspecialchars($_POST['email'] ?? ''); ?>">
                 </div>
                 
                 <div class="form-group">
-                    <input type="password" id="password" name="password" class="form-input" placeholder="Password" required autocomplete="current-password">
+                    <input type="password" name="password" class="form-input" placeholder="Password" required autocomplete="current-password">
                 </div>
                 
-                <button type="submit" id="loginBtn" class="submit-btn">
-                    <span class="btn-text">Sign In</span>
-                    <div class="spinner"></div>
+                <button type="submit" class="submit-btn">
+                    Sign In
                 </button>
             </form>
             
@@ -498,95 +436,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 
     <script>
+        // Simple form enhancements
         document.addEventListener('DOMContentLoaded', function() {
-            const loginForm = document.getElementById('loginForm');
-            const loginBtn = document.getElementById('loginBtn');
+            const emailInput = document.querySelector('input[name="email"]');
+            const passwordInput = document.querySelector('input[name="password"]');
             
-            loginForm.addEventListener('submit', function(e) {
-                e.preventDefault();
-                
-                // Show loading state
-                loginBtn.classList.add('loading');
-                loginBtn.disabled = true;
-                
-                // Get form data
-                const formData = new FormData(loginForm);
-                
-                // Submit form via AJAX
-                fetch('login.php', {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        // Success - show success message and redirect
-                        showMessage('Login successful! Redirecting...', 'success');
-                        
-                        setTimeout(() => {
-                            window.location.href = data.data.redirect || 'dashboard.php';
-                        }, 1000);
-                    } else {
-                        // Error - show error message
-                        showMessage(data.message, 'error');
-                        
-                        // Reset form state
-                        loginBtn.classList.remove('loading');
-                        loginBtn.disabled = false;
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    showMessage('An error occurred. Please try again.', 'error');
-                    
-                    // Reset form state
-                    loginBtn.classList.remove('loading');
-                    loginBtn.disabled = false;
-                });
-            });
-            
-            function showMessage(message, type) {
-                // Remove existing messages
-                const existingMessage = document.querySelector('.flash-message');
-                if (existingMessage) {
-                    existingMessage.remove();
-                }
-                
-                // Create new message
-                const messageDiv = document.createElement('div');
-                messageDiv.className = `flash-message ${type}`;
-                messageDiv.textContent = message;
-                
-                // Insert before form
-                const loginContent = document.querySelector('.login-content');
-                const form = document.querySelector('.login-form');
-                loginContent.insertBefore(messageDiv, form);
-                
-                // Auto-remove error messages after 5 seconds
-                if (type === 'error') {
-                    setTimeout(() => {
-                        if (messageDiv.parentNode) {
-                            messageDiv.remove();
-                        }
-                    }, 5000);
-                }
+            // Auto-focus email field if empty, otherwise focus password
+            if (emailInput.value === '') {
+                emailInput.focus();
+            } else {
+                passwordInput.focus();
             }
             
-            // Auto-focus email field
-            document.getElementById('email').focus();
-            
             // Handle Enter key navigation
-            document.getElementById('email').addEventListener('keypress', function(e) {
+            emailInput.addEventListener('keypress', function(e) {
                 if (e.key === 'Enter') {
-                    document.getElementById('password').focus();
+                    passwordInput.focus();
                 }
             });
             
-            document.getElementById('password').addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') {
-                    loginForm.dispatchEvent(new Event('submit'));
-                }
-            });
+            // Auto-hide success messages after 3 seconds
+            const successMessage = document.querySelector('.message.success');
+            if (successMessage) {
+                setTimeout(function() {
+                    successMessage.style.opacity = '0';
+                    setTimeout(function() {
+                        successMessage.style.display = 'none';
+                    }, 300);
+                }, 3000);
+            }
         });
     </script>
 </body>
