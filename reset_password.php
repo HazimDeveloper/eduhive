@@ -436,11 +436,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$error_message) {
 <body>
     <!-- Top Left Logo -->
     <div class="top-logo">
-        <div class="logo-circle">
-            <div class="graduation-cap">🎓</div>
-            <div class="location-pin">📍</div>
-        </div>
+         <!-- Top Left Logo -->
+    <div class="top-logo">
+        <img src="logoo.png" width="60px" alt="">
         <div class="logo-text">EduHive</div>
+    </div>
     </div>
 
     <!-- Main Reset Container -->

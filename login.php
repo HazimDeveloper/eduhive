@@ -392,10 +392,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body>
     <!-- Top Left Logo -->
     <div class="top-logo">
-        <div class="logo-circle">
-            <div class="graduation-cap">🎓</div>
-            <div class="location-pin">📍</div>
-        </div>
+        <img src="logoo.png" width="60px" alt="">
         <div class="logo-text">EduHive</div>
     </div>
 
