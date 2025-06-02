@@ -25,11 +25,15 @@ $default_dashboard_data = [
 
 // Initialize variables
 $dashboard_data = $default_dashboard_data;
+$upcoming_reminder = null;
 $error_message = '';
 
 try {
     // Get dashboard data using the function from functions.php
     $fetched_data = getDashboardData($user_id);
+    
+    // Get upcoming reminder
+    $upcoming_reminder = getUpcomingReminder($user_id);
     
     // Ensure we have valid data
     if ($fetched_data && is_array($fetched_data)) {
@@ -182,13 +186,18 @@ function safeGet($array, $key, $default = '') {
             </div>
           </div>
           
-          <!-- Reminder Card -->
+          <!-- Reminder Card - Now Dynamic -->
           <div class="dashboard-card reminder">
             <h3>Reminder</h3>
             <div class="reminder-content">
-              <h4>Meeting with FYP Supervisor</h4>
-              <p><strong>Time:</strong> 11:00am - 12:00pm</p>
-              <p><strong>Date:</strong> 14/6/2025</p>
+              <?php if ($upcoming_reminder): ?>
+                <h4><?php echo htmlspecialchars($upcoming_reminder['title']); ?></h4>
+                <p><strong>Time:</strong> <?php echo htmlspecialchars($upcoming_reminder['time']); ?></p>
+                <p><strong>Date:</strong> <?php echo htmlspecialchars($upcoming_reminder['date']); ?></p>
+              <?php else: ?>
+                <h4>No upcoming reminders</h4>
+                <p><strong>All caught up!</strong> Check your calendar for future events.</p>
+              <?php endif; ?>
             </div>
           </div>
           

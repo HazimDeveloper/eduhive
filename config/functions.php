@@ -2047,3 +2047,158 @@ function cleanupExpiredTokens() {
     }
 }
 ?>
+
+<?php
+// Add this function to the end of your existing config/functions.php file
+
+/**
+ * Get the next upcoming reminder for dashboard
+ * @param int $user_id User ID
+ * @return array|null Reminder data or null if no upcoming reminders
+ */
+function getUpcomingReminder($user_id) {
+    $database = new Database();
+    
+    try {
+        // First, check for upcoming events (next 7 days)
+        $events_query = "SELECT 
+            title,
+            start_datetime,
+            event_type,
+            location
+            FROM events 
+            WHERE user_id = :user_id 
+            AND start_datetime >= NOW() 
+            AND start_datetime <= DATE_ADD(NOW(), INTERVAL 7 DAY)
+            ORDER BY start_datetime ASC 
+            LIMIT 1";
+        
+        $event = $database->queryRow($events_query, [':user_id' => $user_id]);
+        
+        if ($event) {
+            $start_time = new DateTime($event['start_datetime']);
+            return [
+                'title' => $event['title'],
+                'time' => $start_time->format('g:i A'),
+                'date' => $start_time->format('j/n/Y'),
+                'type' => 'event'
+            ];
+        }
+        
+        // Second, check for upcoming tasks with due dates
+        $tasks_query = "SELECT 
+            title,
+            due_date,
+            priority
+            FROM tasks 
+            WHERE user_id = :user_id 
+            AND status != 'done'
+            AND due_date IS NOT NULL
+            AND due_date >= CURDATE()
+            AND due_date <= DATE_ADD(CURDATE(), INTERVAL 7 DAY)
+            ORDER BY due_date ASC, priority DESC
+            LIMIT 1";
+        
+        $task = $database->queryRow($tasks_query, [':user_id' => $user_id]);
+        
+        if ($task) {
+            $due_date = new DateTime($task['due_date']);
+            return [
+                'title' => $task['title'] . ' (Task Due)',
+                'time' => 'All day',
+                'date' => $due_date->format('j/n/Y'),
+                'type' => 'task'
+            ];
+        }
+        
+        // Third, check for next class from schedule
+        $today = strtolower(date('l'));
+        $current_time = date('H:i:s');
+        
+        // Get next class today (if any)
+        $class_today_query = "SELECT 
+            cs.class_code,
+            cs.start_time,
+            cs.end_time,
+            cs.location,
+            c.name as course_name
+            FROM class_schedules cs
+            LEFT JOIN courses c ON cs.course_id = c.id
+            WHERE cs.user_id = :user_id 
+            AND cs.day_of_week = :today
+            AND cs.start_time > :current_time
+            ORDER BY cs.start_time ASC
+            LIMIT 1";
+        
+        $class_today = $database->queryRow($class_today_query, [
+            ':user_id' => $user_id,
+            ':today' => $today,
+            ':current_time' => $current_time
+        ]);
+        
+        if ($class_today) {
+            $start_time = new DateTime($class_today['start_time']);
+            $end_time = new DateTime($class_today['end_time']);
+            
+            return [
+                'title' => $class_today['course_name'] ?: $class_today['class_code'],
+                'time' => $start_time->format('g:i A') . ' - ' . $end_time->format('g:i A'),
+                'date' => 'Today',
+                'type' => 'class'
+            ];
+        }
+        
+        // If no class today, get next class in upcoming days
+        $days_order = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+        $today_index = array_search($today, $days_order);
+        
+        // Check next 7 days
+        for ($i = 1; $i <= 7; $i++) {
+            $next_day_index = ($today_index + $i) % 7;
+            $next_day = $days_order[$next_day_index];
+            
+            $next_class_query = "SELECT 
+                cs.class_code,
+                cs.start_time,
+                cs.end_time,
+                cs.location,
+                cs.day_of_week,
+                c.name as course_name
+                FROM class_schedules cs
+                LEFT JOIN courses c ON cs.course_id = c.id
+                WHERE cs.user_id = :user_id 
+                AND cs.day_of_week = :day
+                ORDER BY cs.start_time ASC
+                LIMIT 1";
+            
+            $next_class = $database->queryRow($next_class_query, [
+                ':user_id' => $user_id,
+                ':day' => $next_day
+            ]);
+            
+            if ($next_class) {
+                $start_time = new DateTime($next_class['start_time']);
+                $end_time = new DateTime($next_class['end_time']);
+                
+                // Calculate the actual date
+                $target_date = new DateTime();
+                $target_date->modify("+$i days");
+                
+                return [
+                    'title' => $next_class['course_name'] ?: $next_class['class_code'],
+                    'time' => $start_time->format('g:i A') . ' - ' . $end_time->format('g:i A'),
+                    'date' => $target_date->format('j/n/Y'),
+                    'type' => 'class'
+                ];
+            }
+        }
+        
+        // No reminders found
+        return null;
+        
+    } catch (Exception $e) {
+        error_log("Error getting upcoming reminder: " . $e->getMessage());
+        return null;
+    }
+}
+?>
