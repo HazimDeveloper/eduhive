@@ -12,10 +12,7 @@
     <nav class="sidebar">
       <div class="sidebar-header">
         <div class="sidebar-logo">
-          <div class="logo-circle-small">
-            <div class="graduation-cap-small">🎓</div>
-            <div class="location-pin-small">📍</div>
-          </div>
+            <img src="logoo.png"  width="40px" alt="">
         </div>
         <h2>EduHive</h2>
       </div>

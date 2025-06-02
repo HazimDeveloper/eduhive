@@ -55,12 +55,9 @@ if (isset($_GET['token'])) {
         <div class="login-box">
             <div class="brand">
                 <div class="logo">
-                    <div class="logo-circle">
-                        <div class="graduation-cap">🎓</div>
-                        <div class="location-pin">📍</div>
-                    </div>
+                      <img src="logoo.png"  width="60px" alt="">
+                       <div class="logo-text">EduHive</div>
                 </div>
-                <h1>EduHive</h1>
             </div>
             
             <div class="login-form">
