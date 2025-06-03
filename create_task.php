@@ -1,9 +1,10 @@
 <?php
-require_once 'config/database.php';
-require_once 'config/session.php';
+// Add this at the top with other requires
 require_once 'config/functions.php';
+require_once 'config/session.php';
+require_once 'config/database.php';
 
-// Ensure user is logged in
+// Remove any duplicate require statements
 requireLogin();
 
 // Get current user data
@@ -17,44 +18,51 @@ $courses = getUserCourses($user_id);
 $selected_course_id = isset($_GET['course_id']) ? (int)$_GET['course_id'] : 0;
 
 // Handle form submission
+// Enhanced form handling with better validation
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
-        $database = new Database();
-        
-        // Prepare task data
+        // Validate required fields
+        if (empty($_POST['title']) || empty($_POST['date'])) {
+            throw new Exception("Title and date are required fields");
+        }
+
+        // Prepare task data with enhanced validation
         $task_data = [
             'user_id' => $user_id,
             'title' => cleanInput($_POST['title']),
             'description' => cleanInput($_POST['description'] ?? ''),
-            'due_date' => $_POST['date'],
-            'start_time' => $_POST['start_time'] ?? null,
-            'end_time' => $_POST['end_time'] ?? null,
+            'due_date' => date('Y-m-d', strtotime($_POST['date'])), // Ensure proper date format
+            'start_time' => !empty($_POST['start_time']) ? $_POST['start_time'] : null,
+            'end_time' => !empty($_POST['end_time']) ? $_POST['end_time'] : null,
             'course_id' => !empty($_POST['course_id']) ? (int)$_POST['course_id'] : null,
-            'reminder_type' => cleanInput($_POST['reminder_type'] ?? ''),
-            'whatsapp_number' => cleanInput($_POST['whatsapp_number'] ?? ''), // New field for WhatsApp
+            'reminder_type' => cleanInput($_POST['reminder_type'] ?? 'none'),
+            'whatsapp_number' => cleanInput($_POST['whatsapp_number'] ?? ''),
             'status' => 'todo',
-            'priority' => 'medium'
+            'priority' => cleanInput($_POST['priority'] ?? 'medium') // Added priority selection
         ];
-        
+
         // Create the task
-        $task_id = $database->insert('tasks', $task_data);
+        $task_id = createTask($user_id, $task_data);
         
         if ($task_id) {
-            // Handle WhatsApp reminder scheduling if selected
+            // Remove this line
+            // logActivity($user_id, 'task_created', "Created task: " . $task_data['title']);
+            
+            // Handle reminders
             if ($task_data['reminder_type'] === 'whatsapp' && !empty($task_data['whatsapp_number'])) {
                 scheduleWhatsAppReminder($task_id, $task_data);
             }
             
-            // Redirect back to tasks page with success message
+            // Redirect with success
             header("Location: task.php?success=1");
             exit();
         } else {
-            $error_message = "Failed to create task. Please try again.";
+            throw new Exception("Database insertion failed");
         }
-        
+
     } catch (Exception $e) {
         error_log("Create task error: " . $e->getMessage());
-        $error_message = "An error occurred while creating the task.";
+        $error_message = "Failed to create task: " . $e->getMessage();
     }
 }
 

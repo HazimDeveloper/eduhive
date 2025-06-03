@@ -1318,14 +1318,14 @@ function checkRewardEligibility($user_id) {
     ];
     
     // Check daily reward eligibility
-    $last_claim = $progress['last_daily_claim'];
-    $today = date('Y-m-d');
-    
-    if (!$last_claim || $last_claim !== $today) {
-        $rewards['daily']['eligible'] = true;
-    } else {
-        $rewards['daily']['claimed'] = true;
-    }
+        $last_claim = $progress['last_daily_claim'] ?? null;
+        $today = date('Y-m-d');
+        
+        if (!$last_claim || $last_claim !== $today) {
+            $rewards['daily']['eligible'] = true;
+        } else {
+            $rewards['daily']['claimed'] = true;
+        }
     
     // Check first task completion
     $completed_tasks = $task_stats['done_tasks'] ?? 0;
