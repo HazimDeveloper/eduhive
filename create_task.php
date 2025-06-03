@@ -1,15 +1,15 @@
 <?php
-// Add this at the top with other requires
-require_once 'config/functions.php';
-require_once 'config/session.php';
 require_once 'config/database.php';
+require_once 'config/session.php';
+require_once 'config/functions.php';
 
-// Remove any duplicate require statements
+// Ensure user is logged in
 requireLogin();
 
 // Get current user data
 $user_id = getCurrentUserId();
 $user_name = getCurrentUserName() ?: 'User';
+$user_email = getCurrentUserEmail();
 
 // Get courses for dropdown
 $courses = getUserCourses($user_id);
@@ -18,82 +18,137 @@ $courses = getUserCourses($user_id);
 $selected_course_id = isset($_GET['course_id']) ? (int)$_GET['course_id'] : 0;
 
 // Handle form submission
-// Enhanced form handling with better validation
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         // Validate required fields
-        if (empty($_POST['title']) || empty($_POST['date'])) {
-            throw new Exception("Title and date are required fields");
+        if (empty($_POST['title'])) {
+            throw new Exception("Task title is required");
         }
 
-        // Prepare task data with enhanced validation
+        if (empty($_POST['due_date'])) {
+            throw new Exception("Due date is required");
+        }
+
+        // Validate date format
+        $due_date = $_POST['due_date'];
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $due_date)) {
+            throw new Exception("Invalid date format");
+        }
+
+        // Check if date is not in the past
+        if (strtotime($due_date) < strtotime('today')) {
+            throw new Exception("Due date cannot be in the past");
+        }
+
+        // Validate time format if provided
+        if (!empty($_POST['start_time']) && !preg_match('/^\d{2}:\d{2}$/', $_POST['start_time'])) {
+            throw new Exception("Invalid start time format");
+        }
+
+        if (!empty($_POST['end_time']) && !preg_match('/^\d{2}:\d{2}$/', $_POST['end_time'])) {
+            throw new Exception("Invalid end time format");
+        }
+
+        // Validate reminder settings
+        $reminder_time = cleanInput($_POST['reminder_time'] ?? '');
+        $reminder_type = cleanInput($_POST['reminder_type'] ?? '');
+        
+        if ($reminder_time && $reminder_type) {
+            if ($reminder_type === 'whatsapp' && empty($_POST['whatsapp_number'])) {
+                throw new Exception("WhatsApp number is required for WhatsApp reminders");
+            }
+            
+            if ($reminder_type === 'email' && empty($user_email)) {
+                throw new Exception("Email address is required for email reminders");
+            }
+        }
+
+        // Validate priority
+        $valid_priorities = ['low', 'medium', 'high'];
+        $priority = $_POST['priority'] ?? 'medium';
+        if (!in_array($priority, $valid_priorities)) {
+            $priority = 'medium';
+        }
+
+        // Prepare task data
         $task_data = [
             'user_id' => $user_id,
             'title' => cleanInput($_POST['title']),
             'description' => cleanInput($_POST['description'] ?? ''),
-            'due_date' => date('Y-m-d', strtotime($_POST['date'])), // Ensure proper date format
+            'due_date' => $due_date,
             'start_time' => !empty($_POST['start_time']) ? $_POST['start_time'] : null,
             'end_time' => !empty($_POST['end_time']) ? $_POST['end_time'] : null,
             'course_id' => !empty($_POST['course_id']) ? (int)$_POST['course_id'] : null,
-            'reminder_type' => cleanInput($_POST['reminder_type'] ?? 'none'),
-            'whatsapp_number' => cleanInput($_POST['whatsapp_number'] ?? ''),
+            'priority' => $priority,
             'status' => 'todo',
-            'priority' => cleanInput($_POST['priority'] ?? 'medium') // Added priority selection
+            'reminder_type' => $reminder_type
         ];
 
         // Create the task
-        $task_id = createTask($user_id, $task_data);
+        $task_id = createEnhancedTask($user_id, $task_data);
         
         if ($task_id) {
-            // Remove this line
-            // logActivity($user_id, 'task_created', "Created task: " . $task_data['title']);
-            
-            // Handle reminders
-            if ($task_data['reminder_type'] === 'whatsapp' && !empty($task_data['whatsapp_number'])) {
-                scheduleWhatsAppReminder($task_id, $task_data);
+            // Create reminder if specified
+            if ($reminder_time && $reminder_type) {
+                $reminder_data = [
+                    'task_id' => $task_id,
+                    'user_id' => $user_id,
+                    'reminder_time' => $reminder_time,
+                    'reminder_type' => $reminder_type,
+                    'due_date' => $due_date,
+                    'start_time' => $task_data['start_time'],
+                    'title' => $task_data['title'],
+                    'description' => $task_data['description'],
+                    'whatsapp_number' => cleanInput($_POST['whatsapp_number'] ?? ''),
+                    'email' => $user_email
+                ];
+                
+                $reminder_id = createTaskReminder($reminder_data);
+                if (!$reminder_id) {
+                    error_log("Failed to create reminder for task: " . $task_id);
+                }
             }
             
-            // Redirect with success
-            header("Location: task.php?success=1");
+            // Redirect with success message
+            setMessage('Task created successfully!' . ($reminder_time && $reminder_type ? ' Reminder set.' : ''), 'success');
+            
+            // Redirect based on source
+            if (!empty($_POST['course_id'])) {
+                header("Location: task.php?course_filter=" . $_POST['course_id']);
+            } else {
+                header("Location: task.php");
+            }
             exit();
         } else {
-            throw new Exception("Database insertion failed");
+            throw new Exception("Failed to create task in database");
         }
 
     } catch (Exception $e) {
         error_log("Create task error: " . $e->getMessage());
-        $error_message = "Failed to create task: " . $e->getMessage();
+        $error_message = $e->getMessage();
     }
 }
 
-// Function to schedule WhatsApp reminder (you'll need to implement this with WhatsApp Business API)
-function scheduleWhatsAppReminder($task_id, $task_data) {
-    // This is where you'd integrate with WhatsApp Business API
-    // For now, we'll just log the reminder request
-    error_log("WhatsApp reminder scheduled for task {$task_id} to number {$task_data['whatsapp_number']}");
-    
-    // You could also store this in a reminders table for processing by a cron job
+// Get message from session if redirected
+$message = getMessage();
+
+/**
+ * Create task reminder
+ */
+function createTaskReminder($reminder_data) {
     $database = new Database();
-    $reminder_data = [
-        'task_id' => $task_id,
-        'user_id' => $task_data['user_id'],
-        'reminder_type' => 'whatsapp',
-        'recipient' => $task_data['whatsapp_number'],
-        'scheduled_time' => calculateReminderTime($task_data['due_date'], $task_data['start_time']),
-        'message' => generateWhatsAppMessage($task_data),
-        'status' => 'pending',
-        'created_at' => date('Y-m-d H:i:s')
-    ];
     
-    // Create reminders table if it doesn't exist
     try {
+        // Create reminders table if it doesn't exist
         $create_table = "CREATE TABLE IF NOT EXISTS task_reminders (
             id INT AUTO_INCREMENT PRIMARY KEY,
             task_id INT NOT NULL,
             user_id INT NOT NULL,
-            reminder_type VARCHAR(20) NOT NULL,
-            recipient VARCHAR(100) NOT NULL,
-            scheduled_time DATETIME NOT NULL,
+            reminder_type ENUM('email', 'whatsapp', 'notification') NOT NULL,
+            reminder_time VARCHAR(50) NOT NULL,
+            scheduled_datetime DATETIME NOT NULL,
+            recipient_email VARCHAR(100),
+            recipient_whatsapp VARCHAR(20),
             message TEXT NOT NULL,
             status ENUM('pending', 'sent', 'failed') DEFAULT 'pending',
             sent_at TIMESTAMP NULL,
@@ -103,35 +158,104 @@ function scheduleWhatsAppReminder($task_id, $task_data) {
         )";
         $database->getConnection()->exec($create_table);
         
-        $database->insert('task_reminders', $reminder_data);
+        // Calculate scheduled datetime
+        $scheduled_datetime = calculateReminderDateTime(
+            $reminder_data['due_date'], 
+            $reminder_data['start_time'], 
+            $reminder_data['reminder_time']
+        );
+        
+        // Generate message
+        $message = generateReminderMessage($reminder_data);
+        
+        // Prepare reminder record
+        $data = [
+            'task_id' => $reminder_data['task_id'],
+            'user_id' => $reminder_data['user_id'],
+            'reminder_type' => $reminder_data['reminder_type'],
+            'reminder_time' => $reminder_data['reminder_time'],
+            'scheduled_datetime' => $scheduled_datetime,
+            'recipient_email' => $reminder_data['reminder_type'] === 'email' ? $reminder_data['email'] : null,
+            'recipient_whatsapp' => $reminder_data['reminder_type'] === 'whatsapp' ? $reminder_data['whatsapp_number'] : null,
+            'message' => $message,
+            'status' => 'pending'
+        ];
+        
+        return $database->insert('task_reminders', $data);
+        
     } catch (Exception $e) {
         error_log("Error creating reminder: " . $e->getMessage());
+        return false;
     }
 }
 
-function calculateReminderTime($due_date, $start_time) {
-    // Default to 1 hour before the task time
+/**
+ * Calculate reminder datetime
+ */
+function calculateReminderDateTime($due_date, $start_time, $reminder_time) {
     $task_datetime = $due_date . ' ' . ($start_time ?: '09:00:00');
-    return date('Y-m-d H:i:s', strtotime($task_datetime . ' -1 hour'));
+    $task_timestamp = strtotime($task_datetime);
+    
+    switch ($reminder_time) {
+        case '1_minute':
+            return date('Y-m-d H:i:s', $task_timestamp - 60);
+        case '5_minutes':
+            return date('Y-m-d H:i:s', $task_timestamp - 300);
+        case '20_minutes':
+            return date('Y-m-d H:i:s', $task_timestamp - 1200);
+        case '1_day':
+            return date('Y-m-d H:i:s', $task_timestamp - 86400);
+        case '5_days':
+            return date('Y-m-d H:i:s', $task_timestamp - 432000);
+        case '7_days':
+            return date('Y-m-d H:i:s', $task_timestamp - 604800);
+        default:
+            return date('Y-m-d H:i:s', $task_timestamp - 3600); // 1 hour default
+    }
 }
 
-function generateWhatsAppMessage($task_data) {
-    $message = "🔔 *Task Reminder*\n\n";
-    $message .= "📋 *Task:* " . $task_data['title'] . "\n";
-    $message .= "📅 *Due:* " . date('M j, Y', strtotime($task_data['due_date']));
+/**
+ * Generate reminder message
+ */
+function generateReminderMessage($reminder_data) {
+    $type = $reminder_data['reminder_type'];
+    $title = $reminder_data['title'];
+    $due_date = date('M j, Y', strtotime($reminder_data['due_date']));
+    $start_time = $reminder_data['start_time'] ? date('g:i A', strtotime($reminder_data['start_time'])) : '';
     
-    if ($task_data['start_time']) {
-        $message .= " at " . date('g:i A', strtotime($task_data['start_time']));
+    if ($type === 'whatsapp') {
+        $message = "🔔 *EduHive Task Reminder*\n\n";
+        $message .= "📋 *Task:* {$title}\n";
+        $message .= "📅 *Due:* {$due_date}";
+        if ($start_time) {
+            $message .= " at {$start_time}";
+        }
+        $message .= "\n\n";
+        if (!empty($reminder_data['description'])) {
+            $message .= "📝 *Details:* " . $reminder_data['description'] . "\n\n";
+        }
+        $message .= "💪 Time to get it done!\n";
+        $message .= "✨ _EduHive - Your Academic Assistant_";
+        
+    } elseif ($type === 'email') {
+        $message = "Task Reminder: {$title}\n\n";
+        $message .= "Due Date: {$due_date}";
+        if ($start_time) {
+            $message .= " at {$start_time}";
+        }
+        $message .= "\n\n";
+        if (!empty($reminder_data['description'])) {
+            $message .= "Description: " . $reminder_data['description'] . "\n\n";
+        }
+        $message .= "Don't forget to complete your task!\n\n";
+        $message .= "Best regards,\nEduHive Team";
+        
+    } else { // notification
+        $message = "Reminder: {$title} is due on {$due_date}";
+        if ($start_time) {
+            $message .= " at {$start_time}";
+        }
     }
-    
-    $message .= "\n\n";
-    
-    if (!empty($task_data['description'])) {
-        $message .= "📝 *Details:* " . $task_data['description'] . "\n\n";
-    }
-    
-    $message .= "💪 *Time to get it done!*\n";
-    $message .= "✨ _EduHive - Your Academic Assistant_";
     
     return $message;
 }
@@ -144,80 +268,95 @@ function generateWhatsAppMessage($task_data) {
   <title>EduHive - Create New Task</title>
   <link rel="stylesheet" href="style.css">
   <style>
+    /* Create Task Page Specific Styles */
     .create-task-main {
       flex: 1;
       background: #f8f9fa;
       overflow-y: auto;
-      padding: 40px;
+      padding: 30px 40px;
     }
 
     .create-task-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 50px;
+      margin-bottom: 40px;
     }
 
     .create-task-header h1 {
-      font-size: 48px;
-      font-weight: 400;
+      font-size: 36px;
+      font-weight: 700;
       color: #333;
       margin: 0;
     }
 
-    .user-name {
-      font-size: 16px;
-      color: #666;
-      font-weight: 400;
-    }
-
-    .import-file-section {
-      text-align: right;
-    }
-
-    .import-file-text {
-      font-size: 24px;
-      color: #333;
-      margin-bottom: 10px;
-      font-weight: 400;
-    }
-
-    .import-file-icon {
-      width: 60px;
-      height: 60px;
-      background: #8B7355;
-      border-radius: 10px;
+    .back-link {
+      color: #8B7355;
+      text-decoration: none;
+      font-weight: 500;
+      margin-bottom: 20px;
       display: inline-flex;
       align-items: center;
-      justify-content: center;
-      color: white;
-      font-size: 24px;
-      cursor: pointer;
+      gap: 8px;
       transition: all 0.3s ease;
+      padding: 8px 16px;
+      border-radius: 20px;
     }
 
-    .import-file-icon:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    .back-link:hover {
+      background: rgba(139, 115, 85, 0.1);
+      transform: translateX(-2px);
     }
 
-    /* Form Styles */
+    /* Enhanced Form Container */
+    .task-form-container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
     .task-form {
-      max-width: 600px;
-      margin-top: 40px;
+      background: white;
+      border-radius: 20px;
+      padding: 40px;
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .task-form::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, #b19176 0%, #8B7355 100%);
+    }
+
+    /* Form Grid Layout */
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 30px;
+      margin-bottom: 30px;
+    }
+
+    .form-row.two-cols {
+      grid-template-columns: 1fr 1fr;
     }
 
     .form-group {
-      margin-bottom: 40px;
       position: relative;
     }
 
     .form-group label {
       display: block;
-      font-size: 24px;
+      font-size: 14px;
+      font-weight: 600;
       color: #333;
-      margin-bottom: 15px;
-      font-weight: 400;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
     }
 
     .form-group input,
@@ -225,12 +364,13 @@ function generateWhatsAppMessage($task_data) {
     .form-group textarea {
       width: 100%;
       padding: 15px 20px;
-      border: 2px solid #ddd;
-      border-radius: 10px;
-      font-size: 18px;
-      background: white;
+      border: 2px solid #e1e5e9;
+      border-radius: 12px;
+      font-size: 16px;
+      background: #f8f9fa;
       transition: all 0.3s ease;
       box-sizing: border-box;
+      font-family: inherit;
     }
 
     .form-group input:focus,
@@ -238,87 +378,362 @@ function generateWhatsAppMessage($task_data) {
     .form-group textarea:focus {
       outline: none;
       border-color: #8B7355;
-      box-shadow: 0 0 0 3px rgba(139, 115, 85, 0.1);
+      background: white;
+      box-shadow: 0 0 0 4px rgba(139, 115, 85, 0.1);
+      transform: translateY(-1px);
     }
 
     .form-group textarea {
       min-height: 120px;
       resize: vertical;
+      line-height: 1.6;
     }
 
-    /* Date field with calendar icon */
-    .date-input-wrapper {
+    /* Enhanced Priority Selection */
+    .priority-selection {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 15px;
+      margin-top: 8px;
+    }
+
+    .priority-option {
       position: relative;
     }
 
-    .date-input-wrapper::after {
-      content: '📅';
+    .priority-option input[type="radio"] {
       position: absolute;
-      right: 15px;
-      top: 50%;
-      transform: translateY(-50%);
-      font-size: 20px;
+      opacity: 0;
       pointer-events: none;
     }
 
-    /* Time inputs in same row */
-    .time-row {
+    .priority-option label {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 15px 12px;
+      background: white;
+      border: 2px solid #e1e5e9;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-size: 13px;
+    }
+
+    .priority-option input[type="radio"]:checked + label {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+    }
+
+    .priority-option.low label {
+      color: #28a745;
+      border-color: #28a745;
+    }
+
+    .priority-option.low input[type="radio"]:checked + label {
+      background: #28a745;
+      color: white;
+    }
+
+    .priority-option.medium label {
+      color: #ffc107;
+      border-color: #ffc107;
+    }
+
+    .priority-option.medium input[type="radio"]:checked + label {
+      background: #ffc107;
+      color: #333;
+    }
+
+    .priority-option.high label {
+      color: #dc3545;
+      border-color: #dc3545;
+    }
+
+    .priority-option.high input[type="radio"]:checked + label {
+      background: #dc3545;
+      color: white;
+    }
+
+    /* Enhanced Reminder Section */
+    .reminder-section {
+      background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+      border: 2px solid #e1e5e9;
+      border-radius: 16px;
+      padding: 30px;
+      margin: 40px 0;
+      position: relative;
+    }
+
+    .reminder-section::before {
+      content: '🔔';
+      position: absolute;
+      top: -15px;
+      left: 30px;
+      background: white;
+      padding: 8px 12px;
+      border-radius: 20px;
+      font-size: 18px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+
+    .reminder-section h3 {
+      margin: 0 0 25px 0;
+      color: #333;
+      font-size: 18px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      padding-left: 40px;
+    }
+
+    .reminder-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 30px;
+      margin-bottom: 25px;
     }
 
-    /* Dropdown arrows */
-    .form-group select {
-      appearance: none;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='%23333'%3E%3Cpath d='M6 8L0 0h12z'/%3E%3C/svg%3E");
-      background-repeat: no-repeat;
-      background-position: right 20px center;
-      background-size: 12px;
-      cursor: pointer;
+    /* Reminder Time Options */
+    .reminder-time-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+      margin-top: 10px;
     }
 
-    /* WhatsApp input styling */
-    .whatsapp-input-group {
-      display: none;
-      margin-top: 15px;
+    .reminder-time-option {
+      position: relative;
     }
 
-    .whatsapp-input-group.show {
+    .reminder-time-option input[type="radio"] {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .reminder-time-option label {
       display: block;
+      padding: 12px 16px;
+      background: white;
+      border: 2px solid #e1e5e9;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      text-align: center;
+      font-weight: 500;
+      font-size: 14px;
+    }
+
+    .reminder-time-option input[type="radio"]:checked + label {
+      background: #8B7355;
+      color: white;
+      border-color: #8B7355;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 15px rgba(139, 115, 85, 0.3);
+    }
+
+    /* Reminder Type Selection */
+    .reminder-type-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 15px;
+      margin-top: 10px;
+    }
+
+    .reminder-type-option {
+      position: relative;
+    }
+
+    .reminder-type-option input[type="radio"] {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .reminder-type-option label {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      padding: 20px 15px;
+      background: white;
+      border: 2px solid #e1e5e9;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-weight: 600;
+      text-align: center;
+    }
+
+    .reminder-type-option input[type="radio"]:checked + label {
+      background: #8B7355;
+      color: white;
+      border-color: #8B7355;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(139, 115, 85, 0.3);
+    }
+
+    .reminder-type-icon {
+      font-size: 24px;
+    }
+
+    /* Enhanced WhatsApp Input */
+    .whatsapp-input {
+      display: none;
+      margin-top: 20px;
+      padding: 20px;
+      background: linear-gradient(135deg, rgba(37, 211, 102, 0.1) 0%, rgba(37, 211, 102, 0.05) 100%);
+      border: 2px solid rgba(37, 211, 102, 0.2);
+      border-radius: 12px;
       animation: slideDown 0.3s ease;
     }
 
-    .whatsapp-input {
+    .whatsapp-input.show {
+      display: block;
+    }
+
+    .whatsapp-number-input {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 0;
+      margin-bottom: 12px;
     }
 
     .whatsapp-prefix {
       background: #25D366;
       color: white;
-      padding: 15px 15px;
-      border-radius: 10px 0 0 10px;
-      font-weight: 600;
+      padding: 15px 20px;
+      border-radius: 12px 0 0 12px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border: 2px solid #25D366;
+    }
+
+    .whatsapp-number {
+      flex: 1;
+      border-radius: 0 12px 12px 0;
+      border-left: none;
+      border-color: #25D366;
+    }
+
+    .whatsapp-help {
+      font-size: 13px;
+      color: #155724;
+      font-style: italic;
       display: flex;
       align-items: center;
       gap: 8px;
     }
 
-    .whatsapp-number {
-      flex: 1;
-      border-radius: 0 10px 10px 0;
-      border-left: none;
+    /* Email Input */
+    .email-input {
+      display: none;
+      margin-top: 20px;
+      padding: 20px;
+      background: linear-gradient(135deg, rgba(0, 123, 255, 0.1) 0%, rgba(0, 123, 255, 0.05) 100%);
+      border: 2px solid rgba(0, 123, 255, 0.2);
+      border-radius: 12px;
+      animation: slideDown 0.3s ease;
     }
 
-    .whatsapp-help {
-      font-size: 14px;
+    .email-input.show {
+      display: block;
+    }
+
+    .email-input p {
+      margin: 0;
+      color: #0c5460;
+      font-weight: 500;
+    }
+
+    /* Enhanced Submit Section */
+    .submit-section {
+      margin-top: 50px;
+      display: flex;
+      gap: 20px;
+      justify-content: flex-end;
+    }
+
+    .submit-btn {
+      padding: 18px 40px;
+      background: linear-gradient(45deg, #b19176, #8B7355);
+      color: white;
+      border: none;
+      border-radius: 25px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      box-shadow: 0 4px 15px rgba(139, 115, 85, 0.3);
+    }
+
+    .submit-btn:hover {
+      background: linear-gradient(45deg, #8B7355, #6d5d48);
+      transform: translateY(-3px);
+      box-shadow: 0 8px 25px rgba(139, 115, 85, 0.4);
+    }
+
+    .cancel-btn {
+      padding: 18px 30px;
+      background: white;
       color: #666;
-      margin-top: 8px;
-      font-style: italic;
+      border: 2px solid #e1e5e9;
+      border-radius: 25px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      text-decoration: none;
+      display: inline-block;
+      text-align: center;
+      text-transform: uppercase;
+      letter-spacing: 1px;
     }
 
+    .cancel-btn:hover {
+      background: #f8f9fa;
+      border-color: #8B7355;
+      color: #8B7355;
+      transform: translateY(-2px);
+    }
+
+    /* Enhanced Message Styles */
+    .message {
+      padding: 20px 25px;
+      margin-bottom: 30px;
+      border-radius: 12px;
+      font-weight: 500;
+      border: none;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+      animation: slideDown 0.3s ease;
+    }
+
+    .message.success {
+      background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+      color: #155724;
+    }
+
+    .message.error {
+      background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+      color: #721c24;
+    }
+
+    /* Required field indicator */
+    .required {
+      color: #dc3545;
+      font-weight: 700;
+    }
+
+    /* Animations */
     @keyframes slideDown {
       from {
         opacity: 0;
@@ -330,94 +745,92 @@ function generateWhatsAppMessage($task_data) {
       }
     }
 
-    /* Submit Button */
-    .submit-section {
-      margin-top: 60px;
-      text-align: right;
-    }
-
-    .create-task-btn {
-      padding: 15px 30px;
+    /* Course Badge */
+    .course-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
       background: #8B7355;
       color: white;
-      border: none;
-      border-radius: 25px;
-      font-size: 18px;
-      font-weight: 500;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 5px;
+    }
+
+    /* Custom Select Styling */
+    select {
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='%23666'%3E%3Cpath d='M6 8L0 0h12z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 20px center;
+      background-size: 12px;
       cursor: pointer;
-      transition: all 0.3s ease;
-      min-width: 200px;
-    }
-
-    .create-task-btn:hover {
-      background: #6d5d48;
-      transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(139, 115, 85, 0.4);
-    }
-
-    /* Error Message */
-    .error-message {
-      background: #f8d7da;
-      color: #721c24;
-      padding: 15px;
-      border-radius: 8px;
-      margin-bottom: 20px;
-      border: 1px solid #f5c6cb;
-    }
-
-    /* Hidden file input */
-    .hidden-file-input {
-      display: none;
     }
 
     /* Responsive Design */
-    @media (max-width: 768px) {
+    @media (max-width: 1024px) {
       .create-task-main {
         padding: 20px;
       }
       
-      .create-task-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 20px;
+      .form-row.two-cols {
+        grid-template-columns: 1fr;
       }
       
-      .create-task-header h1 {
-        font-size: 36px;
-      }
-      
-      .time-row {
+      .reminder-grid {
         grid-template-columns: 1fr;
         gap: 20px;
       }
       
-      .import-file-section {
-        text-align: left;
+      .reminder-time-grid {
+        grid-template-columns: 1fr;
       }
       
-      .form-group label {
-        font-size: 20px;
+      .reminder-type-grid {
+        grid-template-columns: 1fr;
       }
-      
-      .form-group input,
-      .form-group select,
-      .form-group textarea {
-        font-size: 16px;
-      }
-      
-      .whatsapp-input {
+    }
+
+    @media (max-width: 768px) {
+      .create-task-header {
         flex-direction: column;
-        align-items: stretch;
+        align-items: flex-start;
+        gap: 15px;
+      }
+      
+      .create-task-header h1 {
+        font-size: 28px;
+      }
+      
+      .task-form {
+        padding: 30px 20px;
+      }
+      
+      .priority-selection {
+        grid-template-columns: 1fr;
+      }
+      
+      .submit-section {
+        flex-direction: column;
+      }
+      
+      .whatsapp-number-input {
+        flex-direction: column;
+        gap: 10px;
       }
       
       .whatsapp-prefix {
-        border-radius: 10px 10px 0 0;
+        border-radius: 12px;
         justify-content: center;
       }
       
       .whatsapp-number {
-        border-radius: 0 0 10px 10px;
-        border-left: 2px solid #ddd;
+        border-radius: 12px;
+        border: 2px solid #25D366;
       }
     }
   </style>
@@ -428,7 +841,7 @@ function generateWhatsAppMessage($task_data) {
     <nav class="sidebar">
       <div class="sidebar-header">
         <div class="sidebar-logo">
-            <img src="logoo.png"  width="40px" alt="">
+          <img src="logoo.png" width="40px" alt="">
         </div>
         <h2>EduHive</h2>
       </div>
@@ -460,266 +873,427 @@ function generateWhatsAppMessage($task_data) {
 
     <!-- Main Create Task Content -->
     <main class="create-task-main">
+      <a href="task.php" class="back-link">← Back to Tasks</a>
+      
       <div class="create-task-header">
         <h1>Create New Task</h1>
-        <div class="header-right">
-          <div class="import-file-section">
-            <div class="import-file-text">Import File</div>
-            <div class="import-file-icon" onclick="document.getElementById('fileInput').click()">
-              📁
-            </div>
-            <input type="file" id="fileInput" class="hidden-file-input" accept=".txt,.csv,.json" onchange="handleFileImport(this)">
-          </div>
-          <div class="user-name" style="margin-top: 20px;"><?php echo htmlspecialchars($user_name); ?> ></div>
-        </div>
+        <div class="user-name"><?php echo htmlspecialchars($user_name); ?> ></div>
       </div>
       
+      <?php if (isset($message)): ?>
+      <div class="message <?php echo htmlspecialchars($message['type']); ?>">
+        <?php echo htmlspecialchars($message['text']); ?>
+      </div>
+      <?php endif; ?>
+      
       <?php if (isset($error_message)): ?>
-      <div class="error-message">
+      <div class="message error">
         <?php echo htmlspecialchars($error_message); ?>
       </div>
       <?php endif; ?>
       
-      <form class="task-form" method="POST">
-        <div class="form-group">
-          <label for="title">Title</label>
-          <input type="text" id="title" name="title" required>
-        </div>
-        
-        <div class="form-group">
-          <label for="date">Date</label>
-          <div class="date-input-wrapper">
-            <input type="date" id="date" name="date" required>
-          </div>
-        </div>
-        
-        <div class="form-group">
-          <div class="time-row">
-            <div>
-              <label for="start_time">Start Time</label>
-              <select id="start_time" name="start_time">
-                <option value="">Select start time</option>
-                <?php for ($h = 0; $h < 24; $h++): ?>
-                  <?php for ($m = 0; $m < 60; $m += 30): ?>
-                    <?php $time = sprintf('%02d:%02d', $h, $m); ?>
-                    <option value="<?php echo $time; ?>"><?php echo date('g:i A', strtotime($time)); ?></option>
-                  <?php endfor; ?>
-                <?php endfor; ?>
-              </select>
-            </div>
-            <div>
-              <label for="end_time">End Time</label>
-              <select id="end_time" name="end_time">
-                <option value="">Select end time</option>
-                <?php for ($h = 0; $h < 24; $h++): ?>
-                  <?php for ($m = 0; $m < 60; $m += 30): ?>
-                    <?php $time = sprintf('%02d:%02d', $h, $m); ?>
-                    <option value="<?php echo $time; ?>"><?php echo date('g:i A', strtotime($time)); ?></option>
-                  <?php endfor; ?>
-                <?php endfor; ?>
-              </select>
+      <div class="task-form-container">
+        <form class="task-form" method="POST">
+          <!-- Task Details Section -->
+          <!-- Task Details Section -->
+          <div class="form-row">
+            <div class="form-group">
+              <label for="title">Task Title <span class="required">*</span></label>
+              <input type="text" id="title" name="title" required placeholder="Enter your task title..." value="<?php echo htmlspecialchars($_POST['title'] ?? ''); ?>">
             </div>
           </div>
-        </div>
-        
-        <div class="form-group">
-          <label for="course_id">Added to Course:</label>
-          <select id="course_id" name="course_id">
-            <option value="">Select course</option>
-            <?php foreach ($courses as $course): ?>
-            <option value="<?php echo $course['id']; ?>" <?php echo ($course['id'] == $selected_course_id) ? 'selected' : ''; ?>>
-              <?php echo htmlspecialchars($course['name']); ?>
-            </option>
-            <?php endforeach; ?>
-          </select>
-        </div>
-        
-        <div class="form-group">
-          <label for="description">Description</label>
-          <textarea id="description" name="description" placeholder="Enter task description..."></textarea>
-        </div>
-        
-        <div class="form-group">
-          <label for="reminder_type">Device / System Reminder</label>
-          <select id="reminder_type" name="reminder_type" onchange="toggleWhatsAppInput()">
-            <option value="">Select reminder type</option>
-            <option value="none">No reminder</option>
-            <option value="15min">15 minutes before</option>
-            <option value="30min">30 minutes before</option>
-            <option value="1hour">1 hour before</option>
-            <option value="1day">1 day before</option>
-            <option value="email">Email notification</option>
-            <option value="push">Push notification</option>
-            <option value="whatsapp">📱 WhatsApp reminder</option>
-          </select>
           
-          <!-- WhatsApp Number Input (Hidden by default) -->
-          <div id="whatsappInput" class="whatsapp-input-group">
-            <div class="whatsapp-input">
-              <div class="whatsapp-prefix">
-                📱 +60
-              </div>
-              <input type="tel" 
-                     id="whatsapp_number" 
-                     name="whatsapp_number" 
-                     class="whatsapp-number"
-                     placeholder="123456789" 
-                     pattern="[0-9]{8,10}"
-                     maxlength="10">
-            </div>
-            <div class="whatsapp-help">
-              💡 Enter your WhatsApp number without country code (Malaysia +60)
+          <div class="form-row">
+            <div class="form-group">
+              <label for="description">Description</label>
+              <textarea id="description" name="description" placeholder="Describe your task in detail..."><?php echo htmlspecialchars($_POST['description'] ?? ''); ?></textarea>
             </div>
           </div>
-        </div>
-        
-        <div class="submit-section">
-          <button type="submit" class="create-task-btn">Create New Task</button>
-        </div>
-      </form>
+          
+          <!-- Date and Time Section -->
+          <div class="form-row two-cols">
+            <div class="form-group">
+              <label for="due_date">Due Date <span class="required">*</span></label>
+              <input type="date" id="due_date" name="due_date" required value="<?php echo htmlspecialchars($_POST['due_date'] ?? ''); ?>">
+            </div>
+            
+            <div class="form-group">
+              <label for="course_id">Course</label>
+              <select id="course_id" name="course_id">
+                <option value="">Select a course (optional)</option>
+                <?php foreach ($courses as $course): ?>
+                <option value="<?php echo $course['id']; ?>" 
+                        <?php echo (($course['id'] == $selected_course_id) || ($course['id'] == ($_POST['course_id'] ?? 0))) ? 'selected' : ''; ?>>
+                  <?php echo htmlspecialchars($course['name'] . ' (' . $course['code'] . ')'); ?>
+                </option>
+                <?php endforeach; ?>
+              </select>
+              <?php if (!empty($_POST['course_id'])): ?>
+                <?php 
+                $selected_course = array_filter($courses, function($c) { return $c['id'] == $_POST['course_id']; });
+                if (!empty($selected_course)):
+                  $course = reset($selected_course);
+                ?>
+                <div class="course-badge">📚 <?php echo htmlspecialchars($course['code']); ?></div>
+                <?php endif; ?>
+              <?php endif; ?>
+            </div>
+          </div>
+          
+          <div class="form-row two-cols">
+            <div class="form-group">
+              <label for="start_time">Start Time (Optional)</label>
+              <input type="time" id="start_time" name="start_time" value="<?php echo htmlspecialchars($_POST['start_time'] ?? ''); ?>">
+            </div>
+            <div class="form-group">
+              <label for="end_time">End Time (Optional)</label>
+              <input type="time" id="end_time" name="end_time" value="<?php echo htmlspecialchars($_POST['end_time'] ?? ''); ?>">
+            </div>
+          </div>
+          
+          <!-- Priority Section -->
+          <div class="form-row">
+            <div class="form-group">
+              <label>Priority Level</label>
+              <div class="priority-selection">
+                <div class="priority-option low">
+                  <input type="radio" id="priority_low" name="priority" value="low" <?php echo (($_POST['priority'] ?? 'medium') === 'low') ? 'checked' : ''; ?>>
+                  <label for="priority_low">🟢 Low</label>
+                </div>
+                <div class="priority-option medium">
+                  <input type="radio" id="priority_medium" name="priority" value="medium" <?php echo (($_POST['priority'] ?? 'medium') === 'medium') ? 'checked' : ''; ?>>
+                  <label for="priority_medium">🟡 Medium</label>
+                </div>
+                <div class="priority-option high">
+                  <input type="radio" id="priority_high" name="priority" value="high" <?php echo (($_POST['priority'] ?? 'medium') === 'high') ? 'checked' : ''; ?>>
+                  <label for="priority_high">🔴 High</label>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Enhanced Reminder Section -->
+          <div class="reminder-section">
+            <h3>Set Reminder</h3>
+            
+            <div class="reminder-grid">
+              <div class="form-group">
+                <label>Reminder Time</label>
+                <div class="reminder-time-grid">
+                  <div class="reminder-time-option">
+                    <input type="radio" id="reminder_1min" name="reminder_time" value="1_minute">
+                    <label for="reminder_1min">1 minute before</label>
+                  </div>
+                  <div class="reminder-time-option">
+                    <input type="radio" id="reminder_5min" name="reminder_time" value="5_minutes">
+                    <label for="reminder_5min">5 minutes before</label>
+                  </div>
+                  <div class="reminder-time-option">
+                    <input type="radio" id="reminder_20min" name="reminder_time" value="20_minutes">
+                    <label for="reminder_20min">20 minutes before</label>
+                  </div>
+                  <div class="reminder-time-option">
+                    <input type="radio" id="reminder_1day" name="reminder_time" value="1_day">
+                    <label for="reminder_1day">1 day before</label>
+                  </div>
+                  <div class="reminder-time-option">
+                    <input type="radio" id="reminder_5days" name="reminder_time" value="5_days">
+                    <label for="reminder_5days">5 days before</label>
+                  </div>
+                  <div class="reminder-time-option">
+                    <input type="radio" id="reminder_7days" name="reminder_time" value="7_days">
+                    <label for="reminder_7days">7 days before</label>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="form-group">
+                <label>Reminder Method</label>
+                <div class="reminder-type-grid">
+                  <div class="reminder-type-option">
+                    <input type="radio" id="reminder_email" name="reminder_type" value="email">
+                    <label for="reminder_email">
+                      <span class="reminder-type-icon">📧</span>
+                      Email
+                    </label>
+                  </div>
+                  <div class="reminder-type-option">
+                    <input type="radio" id="reminder_whatsapp" name="reminder_type" value="whatsapp">
+                    <label for="reminder_whatsapp">
+                      <span class="reminder-type-icon">📱</span>
+                      WhatsApp
+                    </label>
+                  </div>
+                  <div class="reminder-type-option">
+                    <input type="radio" id="reminder_notification" name="reminder_type" value="notification">
+                    <label for="reminder_notification">
+                      <span class="reminder-type-icon">🔔</span>
+                      Website
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- WhatsApp Input -->
+            <div id="whatsappInput" class="whatsapp-input">
+              <div class="whatsapp-number-input">
+                <div class="whatsapp-prefix">
+                  📱 +60
+                </div>
+                <input type="tel" 
+                       id="whatsapp_number" 
+                       name="whatsapp_number" 
+                       class="whatsapp-number"
+                       placeholder="123456789" 
+                       pattern="[0-9]{8,10}"
+                       maxlength="10">
+              </div>
+              <div class="whatsapp-help">
+                💡 Enter your WhatsApp number without country code (Malaysia +60)
+              </div>
+            </div>
+            
+            <!-- Email Input -->
+            <div id="emailInput" class="email-input">
+              <p><strong>📧 Email Reminder:</strong> <?php echo htmlspecialchars($user_email); ?></p>
+              <p style="font-size: 13px; color: #0c5460; margin-top: 8px; opacity: 0.8;">
+                Reminder will be sent to your registered email address
+              </p>
+            </div>
+          </div>
+          
+          <!-- Submit Section -->
+          <div class="submit-section">
+            <a href="task.php" class="cancel-btn">Cancel</a>
+            <button type="submit" class="submit-btn">Create Task</button>
+          </div>
+        </form>
+      </div>
     </main>
   </div>
 
   <script>
-    function toggleWhatsAppInput() {
-      const reminderType = document.getElementById('reminder_type').value;
-      const whatsappInput = document.getElementById('whatsappInput');
-      const whatsappNumber = document.getElementById('whatsapp_number');
+    document.addEventListener('DOMContentLoaded', function() {
+      // Set minimum date to today
+      const dueDateInput = document.getElementById('due_date');
+      const today = new Date().toISOString().split('T')[0];
+      dueDateInput.min = today;
       
-      if (reminderType === 'whatsapp') {
-        whatsappInput.classList.add('show');
-        whatsappNumber.required = true;
-      } else {
-        whatsappInput.classList.remove('show');
-        whatsappNumber.required = false;
-        whatsappNumber.value = '';
-      }
-    }
-
-    function handleFileImport(input) {
-      const file = input.files[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-          try {
-            const content = e.target.result;
-            
-            // Try to parse as JSON first
-            if (file.name.endsWith('.json')) {
-              const data = JSON.parse(content);
-              populateFormFromJSON(data);
-            } else if (file.name.endsWith('.csv')) {
-              populateFormFromCSV(content);
-            } else {
-              // Treat as plain text
-              document.getElementById('description').value = content;
-            }
-            
-            showNotification('File imported successfully!', 'success');
-          } catch (error) {
-            showNotification('Error importing file: ' + error.message, 'error');
-          }
-        };
-        reader.readAsText(file);
-      }
-    }
-    
-    function populateFormFromJSON(data) {
-      if (data.title) document.getElementById('title').value = data.title;
-      if (data.date) document.getElementById('date').value = data.date;
-      if (data.start_time) document.getElementById('start_time').value = data.start_time;
-      if (data.end_time) document.getElementById('end_time').value = data.end_time;
-      if (data.description) document.getElementById('description').value = data.description;
-      if (data.reminder_type) {
-        document.getElementById('reminder_type').value = data.reminder_type;
-        toggleWhatsAppInput();
-      }
-      if (data.whatsapp_number) document.getElementById('whatsapp_number').value = data.whatsapp_number;
-    }
-    
-    function populateFormFromCSV(content) {
-      const lines = content.split('\n');
-      if (lines.length > 1) {
-        const headers = lines[0].split(',');
-        const values = lines[1].split(',');
-        
-        for (let i = 0; i < headers.length; i++) {
-          const header = headers[i].trim().toLowerCase();
-          const value = values[i] ? values[i].trim() : '';
-          
-          if (header === 'title') document.getElementById('title').value = value;
-          else if (header === 'date') document.getElementById('date').value = value;
-          else if (header === 'description') document.getElementById('description').value = value;
-          else if (header === 'whatsapp_number') document.getElementById('whatsapp_number').value = value;
+      // Auto-update end time when start time changes
+      const startTimeInput = document.getElementById('start_time');
+      const endTimeInput = document.getElementById('end_time');
+      
+      startTimeInput.addEventListener('change', function() {
+        if (this.value && !endTimeInput.value) {
+          const [hours, minutes] = this.value.split(':');
+          const endHour = parseInt(hours) + 1;
+          const endTime = (endHour < 24) ? `${endHour.toString().padStart(2, '0')}:${minutes}` : '23:59';
+          endTimeInput.value = endTime;
         }
+      });
+      
+      // Handle reminder type changes
+      const reminderTypeInputs = document.querySelectorAll('input[name="reminder_type"]');
+      const whatsappInput = document.getElementById('whatsappInput');
+      const emailInput = document.getElementById('emailInput');
+      
+      reminderTypeInputs.forEach(input => {
+        input.addEventListener('change', function() {
+          // Hide all specific inputs
+          whatsappInput.classList.remove('show');
+          emailInput.classList.remove('show');
+          
+          // Show specific input based on selection
+          if (this.value === 'whatsapp') {
+            whatsappInput.classList.add('show');
+          } else if (this.value === 'email') {
+            emailInput.classList.add('show');
+          }
+          
+          // Show reminder preview
+          showReminderPreview();
+        });
+      });
+      
+      // Handle reminder time changes
+      const reminderTimeInputs = document.querySelectorAll('input[name="reminder_time"]');
+      reminderTimeInputs.forEach(input => {
+        input.addEventListener('change', showReminderPreview);
+      });
+      
+      // WhatsApp number formatting
+      const whatsappNumberInput = document.getElementById('whatsapp_number');
+      if (whatsappNumberInput) {
+        whatsappNumberInput.addEventListener('input', function() {
+          // Remove non-digits and limit to 10 characters
+          this.value = this.value.replace(/\D/g, '').substring(0, 10);
+        });
+        
+        whatsappNumberInput.addEventListener('keypress', function(e) {
+          // Only allow digits
+          if (!/\d/.test(e.key) && !['Backspace', 'Delete', 'Tab', 'Enter', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+            e.preventDefault();
+          }
+        });
+      }
+      
+      // Form validation
+      const form = document.querySelector('.task-form');
+      form.addEventListener('submit', function(e) {
+        if (!validateForm()) {
+          e.preventDefault();
+        }
+      });
+      
+      // Auto-focus title field
+      document.getElementById('title').focus();
+      
+      // Course selection enhancement
+      const courseSelect = document.getElementById('course_id');
+      courseSelect.addEventListener('change', function() {
+        // Could add course-specific functionality here
+        if (this.value) {
+          showNotification('Course selected: ' + this.options[this.selectedIndex].text, 'info');
+        }
+      });
+      
+      // Priority selection enhancement
+      const priorityInputs = document.querySelectorAll('input[name="priority"]');
+      priorityInputs.forEach(input => {
+        input.addEventListener('change', function() {
+          const priorityText = this.nextElementSibling.textContent.trim();
+          showNotification('Priority set to: ' + priorityText, 'info');
+        });
+      });
+    });
+    
+    function validateForm() {
+      const title = document.getElementById('title').value.trim();
+      const dueDate = document.getElementById('due_date').value;
+      
+      if (!title) {
+        showNotification('Please enter a task title', 'error');
+        document.getElementById('title').focus();
+        return false;
+      }
+      
+      if (!dueDate) {
+        showNotification('Please select a due date', 'error');
+        document.getElementById('due_date').focus();
+        return false;
+      }
+      
+      // Check if due date is not in the past
+      const selectedDate = new Date(dueDate);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      if (selectedDate < today) {
+        showNotification('Due date cannot be in the past', 'error');
+        document.getElementById('due_date').focus();
+        return false;
+      }
+      
+      // Validate time range if both times are provided
+      const startTime = document.getElementById('start_time').value;
+      const endTime = document.getElementById('end_time').value;
+      
+      if (startTime && endTime && startTime >= endTime) {
+        showNotification('End time must be after start time', 'error');
+        document.getElementById('end_time').focus();
+        return false;
+      }
+      
+      // Validate reminder settings
+      const reminderTime = document.querySelector('input[name="reminder_time"]:checked');
+      const reminderType = document.querySelector('input[name="reminder_type"]:checked');
+      
+      if (reminderTime && !reminderType) {
+        showNotification('Please select a reminder method', 'error');
+        return false;
+      }
+      
+      if (reminderType && !reminderTime) {
+        showNotification('Please select when to send the reminder', 'error');
+        return false;
+      }
+      
+      if (reminderType && reminderType.value === 'whatsapp') {
+        const whatsappNumber = document.getElementById('whatsapp_number').value;
+        if (!whatsappNumber || whatsappNumber.length < 8) {
+          showNotification('Please enter a valid WhatsApp number (at least 8 digits)', 'error');
+          document.getElementById('whatsapp_number').focus();
+          return false;
+        }
+      }
+      
+      return true;
+    }
+    
+    function showReminderPreview() {
+      const reminderTime = document.querySelector('input[name="reminder_time"]:checked');
+      const reminderType = document.querySelector('input[name="reminder_type"]:checked');
+      
+      if (reminderTime && reminderType) {
+        const timeText = reminderTime.nextElementSibling.textContent.trim();
+        const typeText = reminderType.nextElementSibling.textContent.trim();
+        showNotification(`Reminder: ${timeText} via ${typeText}`, 'success');
       }
     }
     
     function showNotification(message, type = 'info') {
+      // Remove any existing notifications
+      const existingNotification = document.querySelector('.temp-notification');
+      if (existingNotification) {
+        existingNotification.remove();
+      }
+      
       const notification = document.createElement('div');
+      notification.className = 'temp-notification';
       notification.style.cssText = `
         position: fixed;
         top: 20px;
         right: 20px;
         padding: 15px 25px;
-        border-radius: 8px;
+        border-radius: 12px;
         color: white;
-        font-weight: 500;
+        font-weight: 600;
         z-index: 1000;
         opacity: 0;
-        transition: opacity 0.3s ease;
+        transition: all 0.3s ease;
         max-width: 300px;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
       `;
       
       if (type === 'success') {
-        notification.style.backgroundColor = '#28a745';
+        notification.style.background = 'linear-gradient(45deg, #28a745, #20c997)';
       } else if (type === 'error') {
-        notification.style.backgroundColor = '#dc3545';
+        notification.style.background = 'linear-gradient(45deg, #dc3545, #c82333)';
+      } else if (type === 'info') {
+        notification.style.background = 'linear-gradient(45deg, #17a2b8, #138496)';
       } else {
-        notification.style.backgroundColor = '#17a2b8';
+        notification.style.background = 'linear-gradient(45deg, #ffc107, #e0a800)';
+        notification.style.color = '#333';
       }
       
       notification.textContent = message;
       document.body.appendChild(notification);
       
+      // Animate in
       setTimeout(() => notification.style.opacity = '1', 100);
+      
+      // Animate out and remove
       setTimeout(() => {
         notification.style.opacity = '0';
-        setTimeout(() => document.body.removeChild(notification), 300);
+        notification.style.transform = 'translateX(100%)';
+        setTimeout(() => {
+          if (document.body.contains(notification)) {
+            document.body.removeChild(notification);
+          }
+        }, 300);
       }, 3000);
     }
-
-    // Auto-set minimum date to today
-    document.getElementById('date').min = new Date().toISOString().split('T')[0];
-    
-    // Auto-update end time when start time changes
-    document.getElementById('start_time').addEventListener('change', function() {
-      const startTime = this.value;
-      if (startTime) {
-        const [hours, minutes] = startTime.split(':');
-        const endHour = parseInt(hours) + 1;
-        const endTime = (endHour < 24) ? `${endHour.toString().padStart(2, '0')}:${minutes}` : '23:59';
-        document.getElementById('end_time').value = endTime;
-      }
-    });
-
-    // WhatsApp number formatting
-    document.getElementById('whatsapp_number').addEventListener('input', function() {
-      this.value = this.value.replace(/\D/g, '');
-    });
-    
-    // Form validation
-    document.querySelector('.task-form').addEventListener('submit', function(e) {
-      const reminderType = document.getElementById('reminder_type').value;
-      const whatsappNumber = document.getElementById('whatsapp_number').value;
-      
-      if (reminderType === 'whatsapp' && (!whatsappNumber || whatsappNumber.length < 8)) {
-        e.preventDefault();
-        showNotification('Please enter a valid WhatsApp number', 'error');
-        document.getElementById('whatsapp_number').focus();
-        return false;
-      }
-    });
   </script>
 </body>
 </html>

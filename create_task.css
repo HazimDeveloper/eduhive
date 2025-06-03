@@ -1,0 +1,775 @@
+/* create_task.css - Dedicated styles for Create Task page */
+
+/* Reset and base styles */
+* {
+    box-sizing: border-box;
+  }
+  
+  /* Main layout */
+  .create-task-main {
+    flex: 1;
+    background: #f8f9fa;
+    overflow-y: auto;
+    padding: 40px;
+    min-height: 100vh;
+  }
+  
+  /* Header section */
+  .create-task-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 40px;
+  }
+  
+  .create-task-header h1 {
+    font-size: 48px;
+    font-weight: 400;
+    color: #333;
+    margin: 0;
+    letter-spacing: -1px;
+  }
+  
+  .user-name {
+    font-size: 16px;
+    color: #666;
+    font-weight: 400;
+  }
+  
+  .back-link {
+    color: #8B7355;
+    text-decoration: none;
+    font-weight: 500;
+    margin-bottom: 20px;
+    display: inline-block;
+    transition: color 0.3s ease;
+  }
+  
+  .back-link:hover {
+    text-decoration: underline;
+    color: #6d5d48;
+  }
+  
+  /* Form container */
+  .task-form {
+    max-width: 600px;
+    background: white;
+    padding: 40px;
+    border-radius: 20px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    border: 1px solid rgba(139, 115, 85, 0.1);
+  }
+  
+  /* Form groups */
+  .form-group {
+    margin-bottom: 30px;
+    position: relative;
+  }
+  
+  .form-group label {
+    display: block;
+    font-size: 16px;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 8px;
+    letter-spacing: 0.3px;
+  }
+  
+  /* Form inputs */
+  .form-group input,
+  .form-group select,
+  .form-group textarea {
+    width: 100%;
+    padding: 12px 16px;
+    border: 2px solid #e1e5e9;
+    border-radius: 8px;
+    font-size: 16px;
+    background: #f8f9fa;
+    transition: all 0.3s ease;
+    font-family: inherit;
+  }
+  
+  .form-group input:focus,
+  .form-group select:focus,
+  .form-group textarea:focus {
+    outline: none;
+    border-color: #8B7355;
+    background: white;
+    box-shadow: 0 0 0 3px rgba(139, 115, 85, 0.1);
+  }
+  
+  .form-group textarea {
+    min-height: 100px;
+    resize: vertical;
+    line-height: 1.5;
+  }
+  
+  .form-group input::placeholder,
+  .form-group textarea::placeholder {
+    color: #999;
+    font-style: italic;
+  }
+  
+  /* Time row layout */
+  .time-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  
+  .time-row > div {
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .time-row label {
+    font-size: 14px;
+    margin-bottom: 6px;
+    color: #666;
+  }
+  
+  /* Priority selection */
+  .priority-group {
+    display: flex;
+    gap: 15px;
+    margin-top: 8px;
+  }
+  
+  .priority-option {
+    flex: 1;
+  }
+  
+  .priority-option input[type="radio"] {
+    display: none;
+  }
+  
+  .priority-option label {
+    display: block;
+    padding: 12px;
+    text-align: center;
+    border: 2px solid #e1e5e9;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-weight: 500;
+    background: white;
+  }
+  
+  .priority-option label:hover {
+    border-color: #8B7355;
+    background: rgba(139, 115, 85, 0.05);
+  }
+  
+  .priority-option input[type="radio"]:checked + label {
+    background: #8B7355;
+    color: white;
+    border-color: #8B7355;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(139, 115, 85, 0.3);
+  }
+  
+  /* Priority-specific colors */
+  .priority-option.low label {
+    color: #28a745;
+    border-color: #28a745;
+  }
+  
+  .priority-option.low input[type="radio"]:checked + label {
+    background: #28a745;
+    border-color: #28a745;
+    color: white;
+  }
+  
+  .priority-option.medium label {
+    color: #ffc107;
+    border-color: #ffc107;
+  }
+  
+  .priority-option.medium input[type="radio"]:checked + label {
+    background: #ffc107;
+    border-color: #ffc107;
+    color: #333;
+  }
+  
+  .priority-option.high label {
+    color: #dc3545;
+    border-color: #dc3545;
+  }
+  
+  .priority-option.high input[type="radio"]:checked + label {
+    background: #dc3545;
+    border-color: #dc3545;
+    color: white;
+  }
+  
+  /* Reminder section */
+  .reminder-section {
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border: 2px solid #e1e5e9;
+    border-radius: 16px;
+    padding: 25px;
+    margin-top: 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  
+  .reminder-section::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, #8B7355, #6d5d48);
+  }
+  
+  .reminder-section h3 {
+    margin: 0 0 20px 0;
+    color: #333;
+    font-size: 18px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  
+  .reminder-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 25px;
+    margin-bottom: 20px;
+  }
+  
+  /* Reminder time options */
+  .reminder-time-options {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-top: 10px;
+  }
+  
+  .reminder-option {
+    position: relative;
+  }
+  
+  .reminder-option input[type="radio"] {
+    display: none;
+  }
+  
+  .reminder-option label {
+    display: block;
+    padding: 12px 15px;
+    background: white;
+    border: 2px solid #e1e5e9;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-align: center;
+    font-weight: 500;
+    font-size: 14px;
+  }
+  
+  .reminder-option label:hover {
+    border-color: #8B7355;
+    background: rgba(139, 115, 85, 0.05);
+    transform: translateY(-1px);
+  }
+  
+  .reminder-option input[type="radio"]:checked + label {
+    background: #8B7355;
+    color: white;
+    border-color: #8B7355;
+    box-shadow: 0 4px 12px rgba(139, 115, 85, 0.3);
+  }
+  
+  /* Reminder type grid */
+  .reminder-type-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 15px;
+    margin-top: 10px;
+  }
+  
+  .reminder-type-option {
+    position: relative;
+  }
+  
+  .reminder-type-option input[type="radio"] {
+    display: none;
+  }
+  
+  .reminder-type-option label {
+    display: block;
+    padding: 20px 15px;
+    background: white;
+    border: 2px solid #e1e5e9;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-align: center;
+    font-weight: 500;
+    min-height: 80px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .reminder-type-option label:hover {
+    border-color: #8B7355;
+    background: rgba(139, 115, 85, 0.05);
+    transform: translateY(-2px);
+  }
+  
+  .reminder-type-option input[type="radio"]:checked + label {
+    background: #8B7355;
+    color: white;
+    border-color: #8B7355;
+    box-shadow: 0 6px 20px rgba(139, 115, 85, 0.3);
+  }
+  
+  .reminder-type-icon {
+    font-size: 24px;
+    margin-bottom: 8px;
+    display: block;
+  }
+  
+  /* WhatsApp input styling */
+  .whatsapp-input {
+    display: none;
+    margin-top: 15px;
+    padding: 20px;
+    background: linear-gradient(135deg, rgba(37, 211, 102, 0.1) 0%, rgba(37, 211, 102, 0.05) 100%);
+    border: 2px solid rgba(37, 211, 102, 0.2);
+    border-radius: 12px;
+    animation: slideDown 0.3s ease;
+  }
+  
+  .whatsapp-input.show {
+    display: block;
+  }
+  
+  .whatsapp-number-input {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  
+  .whatsapp-prefix {
+    background: #25D366;
+    color: white;
+    padding: 12px 15px;
+    border-radius: 8px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(37, 211, 102, 0.3);
+  }
+  
+  .whatsapp-number {
+    flex: 1;
+    border: 2px solid #25D366 !important;
+    background: white !important;
+  }
+  
+  .whatsapp-number:focus {
+    border-color: #1eb854 !important;
+    box-shadow: 0 0 0 3px rgba(37, 211, 102, 0.1) !important;
+  }
+  
+  .whatsapp-help {
+    font-size: 14px;
+    color: #666;
+    font-style: italic;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  
+  /* Email input styling */
+  .email-input {
+    display: none;
+    margin-top: 15px;
+    padding: 20px;
+    background: linear-gradient(135deg, rgba(0, 123, 255, 0.1) 0%, rgba(0, 123, 255, 0.05) 100%);
+    border: 2px solid rgba(0, 123, 255, 0.2);
+    border-radius: 12px;
+    animation: slideDown 0.3s ease;
+  }
+  
+  .email-input.show {
+    display: block;
+  }
+  
+  .email-input p {
+    margin: 0;
+    color: #333;
+    font-weight: 500;
+  }
+  
+  .email-input p:last-child {
+    margin-top: 5px;
+    font-size: 14px;
+    color: #666;
+    font-weight: normal;
+  }
+  
+  /* Submit section */
+  .submit-section {
+    margin-top: 40px;
+    display: flex;
+    gap: 15px;
+    padding-top: 20px;
+    border-top: 1px solid #e1e5e9;
+  }
+  
+  .create-task-btn {
+    flex: 1;
+    padding: 15px 30px;
+    background: linear-gradient(45deg, #8B7355, #6d5d48);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  
+  .create-task-btn::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+    transition: left 0.6s ease;
+  }
+  
+  .create-task-btn:hover {
+    background: linear-gradient(45deg, #6d5d48, #5a4d3c);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(139, 115, 85, 0.4);
+  }
+  
+  .create-task-btn:hover::before {
+    left: 100%;
+  }
+  
+  .create-task-btn:active {
+    transform: translateY(0);
+  }
+  
+  .cancel-btn {
+    padding: 15px 30px;
+    background: #f8f9fa;
+    color: #666;
+    border: 2px solid #e1e5e9;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-decoration: none;
+    display: inline-block;
+    text-align: center;
+  }
+  
+  .cancel-btn:hover {
+    background: #e9ecef;
+    border-color: #adb5bd;
+    color: #495057;
+    transform: translateY(-1px);
+  }
+  
+  /* Message styles */
+  .message {
+    padding: 15px 20px;
+    margin-bottom: 20px;
+    border-radius: 8px;
+    font-weight: 500;
+    border: 1px solid transparent;
+    animation: slideDown 0.3s ease;
+  }
+  
+  .message.success {
+    background-color: #d4edda;
+    color: #155724;
+    border-color: #c3e6cb;
+  }
+  
+  .message.error {
+    background-color: #f8d7da;
+    color: #721c24;
+    border-color: #f5c6cb;
+  }
+  
+  .message.info {
+    background-color: #d1ecf1;
+    color: #0c5460;
+    border-color: #bee5eb;
+  }
+  
+  /* Required field indicator */
+  .required {
+    color: #dc3545;
+    font-weight: bold;
+  }
+  
+  /* Help text */
+  .help-text {
+    font-size: 14px;
+    color: #6c757d;
+    margin-top: 5px;
+    font-style: italic;
+  }
+  
+  /* Form validation styles */
+  .form-group input:invalid:not(:focus):not(:placeholder-shown),
+  .form-group select:invalid:not(:focus),
+  .form-group textarea:invalid:not(:focus):not(:placeholder-shown) {
+    border-color: #dc3545;
+    background-color: rgba(220, 53, 69, 0.05);
+  }
+  
+  .form-group input:valid:not(:focus):not(:placeholder-shown),
+  .form-group select:valid:not(:focus),
+  .form-group textarea:valid:not(:focus):not(:placeholder-shown) {
+    border-color: #28a745;
+    background-color: rgba(40, 167, 69, 0.05);
+  }
+  
+  /* Animations */
+  @keyframes slideDown {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  
+  /* Focus indicators for accessibility */
+  .form-group input:focus-visible,
+  .form-group select:focus-visible,
+  .form-group textarea:focus-visible,
+  .priority-option input:focus-visible + label,
+  .reminder-option input:focus-visible + label,
+  .reminder-type-option input:focus-visible + label {
+    outline: 2px solid #8B7355;
+    outline-offset: 2px;
+  }
+  
+  /* Loading state */
+  .create-task-btn:disabled {
+    background: #6c757d;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+  
+  .create-task-btn:disabled::before {
+    display: none;
+  }
+  
+  /* Responsive design */
+  @media (max-width: 1024px) {
+    .create-task-main {
+      padding: 30px;
+    }
+    
+    .task-form {
+      max-width: 100%;
+    }
+  }
+  
+  @media (max-width: 768px) {
+    .create-task-main {
+      padding: 20px;
+    }
+    
+    .create-task-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 10px;
+      text-align: left;
+    }
+    
+    .create-task-header h1 {
+      font-size: 36px;
+    }
+    
+    .task-form {
+      padding: 30px 20px;
+    }
+    
+    .time-row, 
+    .reminder-grid {
+      grid-template-columns: 1fr;
+      gap: 15px;
+    }
+    
+    .reminder-time-options {
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+    
+    .reminder-type-grid {
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+    
+    .priority-group {
+      flex-direction: column;
+      gap: 10px;
+    }
+    
+    .submit-section {
+      flex-direction: column;
+    }
+    
+    .whatsapp-number-input {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 10px;
+    }
+    
+    .whatsapp-prefix {
+      justify-content: center;
+      border-radius: 8px;
+    }
+    
+    .whatsapp-number {
+      border-radius: 8px !important;
+    }
+  }
+  
+  @media (max-width: 480px) {
+    .create-task-main {
+      padding: 15px;
+    }
+    
+    .create-task-header h1 {
+      font-size: 28px;
+    }
+    
+    .task-form {
+      padding: 25px 15px;
+    }
+    
+    .form-group {
+      margin-bottom: 25px;
+    }
+    
+    .form-group label {
+      font-size: 15px;
+    }
+    
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+      font-size: 16px; /* Prevents zoom on iOS */
+      padding: 14px 16px;
+    }
+    
+    .reminder-section {
+      padding: 20px 15px;
+    }
+    
+    .reminder-section h3 {
+      font-size: 16px;
+    }
+    
+    .reminder-type-option label {
+      padding: 15px 10px;
+      min-height: 60px;
+    }
+    
+    .reminder-type-icon {
+      font-size: 20px;
+    }
+    
+    .create-task-btn,
+    .cancel-btn {
+      padding: 14px 20px;
+      font-size: 15px;
+    }
+  }
+  
+  /* Dark mode support (if needed) */
+  @media (prefers-color-scheme: dark) {
+    .create-task-main {
+      background: #1a1a1a;
+      color: #e0e0e0;
+    }
+    
+    .task-form {
+      background: #2d2d2d;
+      border-color: rgba(139, 115, 85, 0.3);
+    }
+    
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+      background: #3a3a3a;
+      border-color: #555;
+      color: #e0e0e0;
+    }
+    
+    .reminder-section {
+      background: linear-gradient(135deg, #2d2d2d 0%, #3a3a3a 100%);
+      border-color: #555;
+    }
+    
+    .message.success {
+      background-color: rgba(40, 167, 69, 0.2);
+      color: #4caf50;
+      border-color: rgba(40, 167, 69, 0.3);
+    }
+    
+    .message.error {
+      background-color: rgba(220, 53, 69, 0.2);
+      color: #f44336;
+      border-color: rgba(220, 53, 69, 0.3);
+    }
+  }
+  
+  /* Print styles */
+  @media print {
+    .create-task-main {
+      background: white;
+      padding: 20px;
+    }
+    
+    .back-link,
+    .submit-section {
+      display: none;
+    }
+    
+    .task-form {
+      box-shadow: none;
+      border: 1px solid #ddd;
+    }
+    
+    .reminder-section {
+      background: #f8f9fa;
+      border: 1px solid #ddd;
+    }
+  }
