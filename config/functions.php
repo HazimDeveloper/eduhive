@@ -1857,9 +1857,8 @@ function formatMemberDate($date) {
     }
 }
 ?>
-
 <?php
-// Add these functions to the end of your existing config/functions.php file
+// Add these functions to your config/functions.php file (or replace existing ones)
 
 /**
  * Generate a secure password reset token
@@ -1883,29 +1882,19 @@ function sendPasswordRecovery($email) {
         $user = $database->queryRow($user_query, [':email' => $email]);
         
         if (!$user) {
-            return ['success' => false, 'message' => 'If this email exists in our system, you will receive a recovery link.'];
+            // Don't reveal if email exists or not for security
+            return ['success' => true, 'message' => 'If this email exists in our system, you will receive a recovery link.'];
         }
         
         // Generate reset token
         $token = generateResetToken();
         $expires_at = date('Y-m-d H:i:s', strtotime('+1 hour')); // Token expires in 1 hour
         
-        // Store reset token in database
-        $token_data = [
-            'user_id' => $user['id'],
-            'token' => $token,
-            'token_type' => 'password_reset',
-            'expires_at' => $expires_at,
-            'used' => 0,
-            'created_at' => date('Y-m-d H:i:s')
-        ];
-        
         // Create reset_tokens table if it doesn't exist
         $create_table = "CREATE TABLE IF NOT EXISTS reset_tokens (
             id INT AUTO_INCREMENT PRIMARY KEY,
             user_id INT NOT NULL,
             token VARCHAR(64) NOT NULL UNIQUE,
-            token_type VARCHAR(20) DEFAULT 'password_reset',
             expires_at TIMESTAMP NOT NULL,
             used TINYINT(1) DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -1916,15 +1905,28 @@ function sendPasswordRecovery($email) {
         
         $database->getConnection()->exec($create_table);
         
-        // Insert token
+        // Delete any existing tokens for this user
+        $database->getConnection()->prepare("DELETE FROM reset_tokens WHERE user_id = ?")->execute([$user['id']]);
+        
+        // Insert new token
+        $token_data = [
+            'user_id' => $user['id'],
+            'token' => $token,
+            'expires_at' => $expires_at,
+            'used' => 0
+        ];
+        
         $token_id = $database->insert('reset_tokens', $token_data);
         
         if ($token_id) {
             // In a real application, you would send an email here
-            // For now, we'll just log the reset link or return it
-            $reset_link = "http://" . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . "/reset_password.php?token=" . $token;
+            // For development, we'll return the reset link
+            $base_url = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://';
+            $base_url .= $_SERVER['HTTP_HOST'];
+            $base_url .= dirname($_SERVER['PHP_SELF']);
+            $reset_link = $base_url . "/reset_password.php?token=" . $token;
             
-            // Log the reset link (in production, send email instead)
+            // Log the reset link for development
             error_log("Password reset link for {$email}: {$reset_link}");
             
             return [
@@ -1943,9 +1945,9 @@ function sendPasswordRecovery($email) {
 }
 
 /**
- * Validate password reset token
+ * Validate password reset token (simplified)
  * @param string $token Reset token
- * @return array Token validation result with user data
+ * @return array Token validation result
  */
 function validateResetToken($token) {
     $database = new Database();
@@ -1974,7 +1976,7 @@ function validateResetToken($token) {
 }
 
 /**
- * Reset user password with token
+ * Reset user password with token (simplified)
  * @param string $token Reset token
  * @param string $new_password New password
  * @return array Reset result
@@ -1997,11 +1999,12 @@ function resetPassword($token, $new_password) {
         $hashed_password = password_hash($new_password, PASSWORD_DEFAULT);
         
         // Start transaction
-        $database->beginTransaction();
+        $db = $database->getConnection();
+        $db->beginTransaction();
         
         // Update user password
         $update_success = $database->update('users', 
-            ['password' => $hashed_password, 'updated_at' => date('Y-m-d H:i:s')], 
+            ['password' => $hashed_password], 
             'id = :id', 
             [':id' => $user_id]
         );
@@ -2014,40 +2017,44 @@ function resetPassword($token, $new_password) {
                 [':token' => $token]
             );
             
-            $database->commit();
+            $db->commit();
             
             return [
                 'success' => true, 
                 'message' => 'Password has been reset successfully. You can now log in with your new password.'
             ];
         } else {
-            $database->rollback();
+            $db->rollback();
             return ['success' => false, 'message' => 'Failed to update password.'];
         }
         
     } catch (Exception $e) {
-        $database->rollback();
+        if (isset($db)) {
+            $db->rollback();
+        }
         error_log("Password reset error: " . $e->getMessage());
         return ['success' => false, 'message' => 'System error. Please try again later.'];
     }
 }
 
 /**
- * Clean up expired reset tokens (call this periodically)
+ * Clean up expired reset tokens
  * @return int Number of tokens cleaned up
  */
 function cleanupExpiredTokens() {
     $database = new Database();
     
     try {
-        return $database->delete('reset_tokens', 'expires_at < NOW() OR used = 1');
+        $db = $database->getConnection();
+        $stmt = $db->prepare("DELETE FROM reset_tokens WHERE expires_at < NOW() OR used = 1");
+        $stmt->execute();
+        return $stmt->rowCount();
     } catch (Exception $e) {
         error_log("Token cleanup error: " . $e->getMessage());
         return 0;
     }
 }
 ?>
-
 <?php
 // Add this function to the end of your existing config/functions.php file
 
