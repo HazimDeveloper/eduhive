@@ -2,7 +2,9 @@
 require_once 'config/database.php';
 require_once 'config/session.php';
 require_once 'config/functions.php';
+require_once 'setup_middleware.php';
 
+checkSetupStatus();
 // Ensure user is logged in
 requireLogin();
 
@@ -11,6 +13,9 @@ $user_id = getCurrentUserId();
 $user_name = getCurrentUserName() ?: 'User';
 $user_email = getCurrentUserEmail();
 
+// Get user's setup configuration for enhanced features
+$user_config = getUserSetupConfig($user_id);
+$has_google_config = hasValidGoogleConfig($user_id);
 // Initialize default dashboard data structure
 $default_dashboard_data = [
     'task_stats' => [
@@ -96,6 +101,7 @@ function safeGet($array, $key, $default = '') {
     return isset($array[$key]) ? $array[$key] : $default;
 }
 ?>
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -146,13 +152,31 @@ function safeGet($array, $key, $default = '') {
     <main class="main-content">
       <div class="content-area">
         <div class="dashboard-header">
-          <h1>Dashboard</h1>
+          <h1><?php echo getGreeting(); ?>, <?php echo htmlspecialchars($user_name); ?>!</h1>
           <div class="user-name">
+            <?php if ($has_google_config): ?>
+              <span style="color: #28a745; margin-right: 10px;">✅ Google Calendar Connected</span>
+            <?php endif; ?>
             <?php echo htmlspecialchars($user_name); ?> > 
             <a href="logout.php" style="color: #666; text-decoration: none;" 
                onclick="return confirm('Are you sure you want to logout?')">Logout</a>
           </div>
         </div>
+        
+        <?php if ($error_message): ?>
+        <div style="background: #f8d7da; color: #721c24; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #f5c6cb;">
+          <?php echo htmlspecialchars($error_message); ?>
+        </div>
+        <?php endif; ?>
+        
+        <!-- Enhanced Feature Banner for new users -->
+        <?php if (!$has_google_config): ?>
+        <div style="background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%); border: 1px solid #2196f3; border-radius: 12px; padding: 20px; margin-bottom: 30px;">
+          <h3 style="color: #1565c0; margin: 0 0 10px 0; font-size: 18px;">🚀 Complete Your Setup</h3>
+          <p style="color: #1976d2; margin: 0 0 15px 0;">Connect your Google Calendar for automatic sync and enhanced features!</p>
+          <a href="setup.php" style="background: #2196f3; color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: 600;">Complete Setup</a>
+        </div>
+        <?php endif; ?>
         
         <div class="dashboard-grid">
           <!-- Task Statistics -->
@@ -252,10 +276,39 @@ function safeGet($array, $key, $default = '') {
           <div id="calendarDays"></div>
         </div>
       </div>
+        <!-- Setup Status Widget (for users who completed setup) -->
+      <?php if ($has_google_config): ?>
+      <div style="background: white; border-radius: 15px; padding: 20px; margin-top: 20px;">
+        <h4 style="margin: 0 0 15px 0; color: #333; font-size: 16px;">🔗 Integrations</h4>
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; align-items: center; gap: 10px; padding: 10px; background: #f8f9fa; border-radius: 8px;">
+            <span style="color: #28a745; font-size: 18px;">✅</span>
+            <div>
+              <div style="font-weight: 600; color: #333; font-size: 14px;">Google Calendar</div>
+              <div style="font-size: 12px; color: #666;">Connected & Syncing</div>
+            </div>
+          </div>
+          
+          <?php if (!empty($user_config['whatsapp_token'])): ?>
+          <div style="display: flex; align-items: center; gap: 10px; padding: 10px; background: #f8f9fa; border-radius: 8px;">
+            <span style="color: #28a745; font-size: 18px;">📱</span>
+            <div>
+              <div style="font-weight: 600; color: #333; font-size: 14px;">WhatsApp</div>
+              <div style="font-size: 12px; color: #666;">Reminders Active</div>
+            </div>
+          </div>
+          <?php endif; ?>
+          
+          <button onclick="window.location.href='setup.php'" style="background: rgba(139, 115, 85, 0.1); color: #8B7355; border: 1px solid #8B7355; padding: 8px 16px; border-radius: 6px; font-size: 12px; cursor: pointer; margin-top: 10px;">
+            ⚙️ Manage Settings
+          </button>
+        </div>
+      </div>
+      <?php endif; ?>
     </aside>
   </div>
 
-  <script>
+   <script>
     // Auto-refresh dashboard data every 30 seconds
     setInterval(refreshDashboard, 30000);
     
@@ -400,6 +453,35 @@ function safeGet($array, $key, $default = '') {
     
     // Initialize calendar
     renderCalendar();
+    
+    // Show setup completion celebration for first-time users
+    <?php if ($has_google_config && isset($_GET['setup_completed'])): ?>
+    setTimeout(() => {
+      if (!localStorage.getItem('eduhive_setup_celebrated')) {
+        showSetupCelebration();
+        localStorage.setItem('eduhive_setup_celebrated', 'true');
+      }
+    }, 1000);
+    
+    function showSetupCelebration() {
+      const celebration = document.createElement('div');
+      celebration.innerHTML = `
+        <div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 10000; display: flex; align-items: center; justify-content: center;">
+          <div style="background: white; padding: 40px; border-radius: 20px; text-align: center; max-width: 500px; margin: 20px;">
+            <div style="font-size: 60px; margin-bottom: 20px;">🎉</div>
+            <h2 style="color: #28a745; margin: 0 0 15px 0;">Setup Complete!</h2>
+            <p style="color: #666; margin: 0 0 25px 0; line-height: 1.6;">
+              Welcome to EduHive! Your account is now fully configured and ready to help you manage your academic life.
+            </p>
+            <button onclick="this.parentElement.parentElement.remove()" style="background: #28a745; color: white; border: none; padding: 12px 30px; border-radius: 8px; font-weight: 600; cursor: pointer;">
+              Get Started! 🚀
+            </button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(celebration);
+    }
+    <?php endif; ?>
   </script>
 </body>
 </html>
