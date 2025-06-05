@@ -246,6 +246,7 @@ function isValidEmail($email) {
     return filter_var($email, FILTER_VALIDATE_EMAIL) !== false;
 }
 
+
 /**
  * Check password strength (simple version)
  * @param string $password Password to check
@@ -1883,60 +1884,15 @@ function sendPasswordRecovery($email) {
         
         if (!$user) {
             // Don't reveal if email exists or not for security
-            return ['success' => true, 'message' => 'If this email exists in our system, you will receive a recovery link.'];
+            return ['success' => true, 'message' => 'If this email exists in our system, you can proceed to reset your password.'];
         }
         
-        // Generate reset token
-        $token = generateResetToken();
-        $expires_at = date('Y-m-d H:i:s', strtotime('+1 hour')); // Token expires in 1 hour
-        
-        // Create reset_tokens table if it doesn't exist
-        $create_table = "CREATE TABLE IF NOT EXISTS reset_tokens (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            user_id INT NOT NULL,
-            token VARCHAR(64) NOT NULL UNIQUE,
-            expires_at TIMESTAMP NOT NULL,
-            used TINYINT(1) DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            INDEX(token),
-            INDEX(user_id),
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        )";
-        
-        $database->getConnection()->exec($create_table);
-        
-        // Delete any existing tokens for this user
-        $database->getConnection()->prepare("DELETE FROM reset_tokens WHERE user_id = ?")->execute([$user['id']]);
-        
-        // Insert new token
-        $token_data = [
-            'user_id' => $user['id'],
-            'token' => $token,
-            'expires_at' => $expires_at,
-            'used' => 0
+        // User exists, allow them to reset password
+        return [
+            'success' => true, 
+            'message' => 'Email found! You can now reset your password.',
+            'user_exists' => true
         ];
-        
-        $token_id = $database->insert('reset_tokens', $token_data);
-        
-        if ($token_id) {
-            // In a real application, you would send an email here
-            // For development, we'll return the reset link
-            $base_url = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https://' : 'http://';
-            $base_url .= $_SERVER['HTTP_HOST'];
-            $base_url .= dirname($_SERVER['PHP_SELF']);
-            $reset_link = $base_url . "/reset_password.php?token=" . $token;
-            
-            // Log the reset link for development
-            error_log("Password reset link for {$email}: {$reset_link}");
-            
-            return [
-                'success' => true, 
-                'message' => 'Recovery instructions have been sent to your email address.',
-                'reset_link' => $reset_link // Remove this in production
-            ];
-        } else {
-            return ['success' => false, 'message' => 'Failed to generate recovery link.'];
-        }
         
     } catch (Exception $e) {
         error_log("Password recovery error: " . $e->getMessage());
@@ -1975,6 +1931,34 @@ function validateResetToken($token) {
     }
 }
 
+function resetPasswordDirect($user_id, $new_password) {
+    $database = new Database();
+    
+    try {
+        // Hash new password
+        $hashed_password = password_hash($new_password, PASSWORD_DEFAULT);
+        
+        // Update user password
+        $update_success = $database->update('users', 
+            ['password' => $hashed_password], 
+            'id = :id', 
+            [':id' => $user_id]
+        );
+        
+        if ($update_success) {
+            return [
+                'success' => true, 
+                'message' => 'Password has been reset successfully. You can now log in with your new password.'
+            ];
+        } else {
+            return ['success' => false, 'message' => 'Failed to update password.'];
+        }
+        
+    } catch (Exception $e) {
+        error_log("Password reset error: " . $e->getMessage());
+        return ['success' => false, 'message' => 'System error. Please try again later.'];
+    }
+}
 /**
  * Reset user password with token (simplified)
  * @param string $token Reset token
@@ -2037,18 +2021,23 @@ function resetPassword($token, $new_password) {
     }
 }
 
-/**
- * Clean up expired reset tokens
- * @return int Number of tokens cleaned up
- */
 function cleanupExpiredTokens() {
     $database = new Database();
     
     try {
-        $db = $database->getConnection();
-        $stmt = $db->prepare("DELETE FROM reset_tokens WHERE expires_at < NOW() OR used = 1");
-        $stmt->execute();
-        return $stmt->rowCount();
+        // Check if reset_tokens table exists
+        $check_table = "SHOW TABLES LIKE 'reset_tokens'";
+        $result = $database->queryRow($check_table);
+        
+        if ($result) {
+            // Table exists, clean it up
+            $db = $database->getConnection();
+            $stmt = $db->prepare("DELETE FROM reset_tokens WHERE expires_at < NOW() OR used = 1");
+            $stmt->execute();
+            return $stmt->rowCount();
+        }
+        
+        return 0;
     } catch (Exception $e) {
         error_log("Token cleanup error: " . $e->getMessage());
         return 0;

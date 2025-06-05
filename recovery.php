@@ -22,18 +22,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif (!isValidEmail($email)) {
         setMessage('Please enter a valid email address.', 'error');
     } else {
-        // Send recovery email
-        $result = sendPasswordRecovery($email);
+        // Check if user exists
+        $database = new Database();
+        $db = $database->getConnection();
         
-        if ($result['success']) {
-            setMessage($result['message'], 'success');
+        try {
+            $user_query = "SELECT id, name FROM users WHERE email = :email AND status = 'active'";
+            $user = $database->queryRow($user_query, [':email' => $email]);
             
-            // In development, show the reset link
-            if (isset($result['reset_link'])) {
-                $_SESSION['reset_link'] = $result['reset_link'];
+            if ($user) {
+                // Store email in session for password reset
+                $_SESSION['reset_email'] = $email;
+                $_SESSION['reset_user_id'] = $user['id'];
+                
+                // Redirect to simple reset page
+                header("Location: simple_reset.php");
+                exit();
+            } else {
+                // Don't reveal if email exists or not for security
+                setMessage('If this email exists in our system, you can now reset your password.', 'success');
             }
-        } else {
-            setMessage($result['message'], 'error');
+            
+        } catch (Exception $e) {
+            error_log("Password recovery error: " . $e->getMessage());
+            setMessage('System error. Please try again later.', 'error');
         }
     }
     
@@ -72,43 +84,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             align-items: center;
             gap: 15px;
             z-index: 1000;
-        }
-
-        .logo-circle {
-            width: 60px;
-            height: 60px;
-            background: linear-gradient(135deg, #4A90A4, #357A8C);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            position: relative;
-            box-shadow: 0 4px 12px rgba(74, 144, 164, 0.3);
-        }
-
-        .graduation-cap {
-            font-size: 24px;
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            color: white;
-        }
-
-        .location-pin {
-            font-size: 14px;
-            position: absolute;
-            bottom: -2px;
-            right: -2px;
-            background: #FF9800;
-            border-radius: 50%;
-            width: 24px;
-            height: 24px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border: 2px solid white;
-            color: white;
         }
 
         .logo-text {
@@ -265,101 +240,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             font-size: 20px;
         }
 
-        /* Reset Link Container (Development) */
-        .reset-link-container {
-            background: #e7f3ff;
-            border: 2px solid #4A90A4;
-            border-radius: 15px;
-            padding: 20px;
-            margin: 30px 0;
-            animation: slideDown 0.3s ease;
-        }
-
-        .reset-link-header {
-            font-weight: 600;
-            color: #2c5aa0;
-            margin-bottom: 15px;
-            font-size: 16px;
-            text-align: center;
-        }
-
-        .reset-link-box {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-            background: white;
-            padding: 15px;
-            border-radius: 10px;
-            border: 1px solid #4A90A4;
-        }
-
-        .reset-link {
-            flex: 1;
-            color: #2c5aa0;
-            text-decoration: none;
-            font-family: 'Courier New', monospace;
-            font-size: 14px;
-            word-break: break-all;
-            line-height: 1.4;
-            transition: color 0.3s ease;
-        }
-
-        .reset-link:hover {
-            color: #1a4480;
-            text-decoration: underline;
-        }
-
-        .copy-btn {
-            background: #4A90A4;
-            color: white;
-            border: none;
-            padding: 8px 15px;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            white-space: nowrap;
-        }
-
-        .copy-btn:hover {
-            background: #357A8C;
-            transform: translateY(-1px);
-        }
-
-        .copy-btn.copied {
-            background: #28a745;
-        }
-
-        .reset-link-note {
-            text-align: center;
-            font-size: 13px;
-            color: #666;
-            margin-top: 10px;
-            font-style: italic;
-        }
-
         /* Responsive Design */
         @media (max-width: 768px) {
             .top-logo {
                 top: 20px;
                 left: 20px;
                 gap: 10px;
-            }
-
-            .logo-circle {
-                width: 50px;
-                height: 50px;
-            }
-
-            .graduation-cap {
-                font-size: 20px;
-            }
-
-            .location-pin {
-                font-size: 12px;
-                width: 20px;
-                height: 20px;
             }
 
             .logo-text {
@@ -388,26 +274,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             .separator {
                 display: none;
-            }
-
-            .reset-link-container {
-                padding: 15px;
-            }
-
-            .reset-link-box {
-                flex-direction: column;
-                gap: 10px;
-                padding: 12px;
-            }
-
-            .reset-link {
-                font-size: 13px;
-                text-align: center;
-            }
-
-            .copy-btn {
-                width: 100%;
-                padding: 10px;
             }
         }
 
@@ -446,35 +312,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 margin-top: 40px;
                 font-size: 14px;
             }
-
-            .reset-link-container {
-                padding: 12px;
-                margin: 20px 0;
-            }
-
-            .reset-link-header {
-                font-size: 14px;
-            }
-
-            .reset-link {
-                font-size: 12px;
-            }
-
-            .copy-btn {
-                font-size: 12px;
-                padding: 8px 12px;
-            }
         }
     </style>
 </head>
 <body>
     <!-- Top Left Logo -->
     <div class="top-logo">
-        <!-- Top Left Logo -->
-    <div class="top-logo">
         <img src="logoo.png" width="60px" alt="">
         <div class="logo-text">EduHive</div>
-    </div>
     </div>
 
     <!-- Main Recovery Container -->
@@ -489,26 +334,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
             <?php endif; ?>
             
-            <!-- Development Reset Link -->
-            <?php if (isset($_SESSION['reset_link'])): ?>
-                <div class="reset-link-container">
-                    <div class="reset-link-header">Development Mode - Reset Link:</div>
-                    <div class="reset-link-box">
-                        <a href="<?php echo htmlspecialchars($_SESSION['reset_link']); ?>" 
-                           target="_blank" 
-                           class="reset-link"
-                           id="resetLink">
-                            <?php echo htmlspecialchars($_SESSION['reset_link']); ?>
-                        </a>
-                        <button type="button" class="copy-btn" onclick="copyResetLink()" id="copyBtn">
-                            📋 Copy
-                        </button>
-                    </div>
-                    <div class="reset-link-note">Click to open in new tab or copy the link</div>
-                </div>
-                <?php unset($_SESSION['reset_link']); ?>
-            <?php endif; ?>
-            
             <!-- Recovery Form -->
             <form class="recovery-form" method="POST">
                 <div class="form-group">
@@ -516,7 +341,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
                 
                 <button type="submit" class="submit-btn">
-                    Send Recovery Link
+                    Continue to Reset Password
                 </button>
             </form>
             
@@ -537,7 +362,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Auto-focus email field
             emailInput.focus();
             
-            // Auto-hide success messages after 5 seconds
+            // Auto-hide success messages after 3 seconds
             const successMessage = document.querySelector('.message.success');
             if (successMessage) {
                 setTimeout(function() {
@@ -545,61 +370,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     setTimeout(function() {
                         successMessage.style.display = 'none';
                     }, 300);
-                }, 5000);
+                }, 3000);
             }
         });
-
-        // Copy reset link to clipboard
-        function copyResetLink() {
-            const resetLink = document.getElementById('resetLink');
-            const copyBtn = document.getElementById('copyBtn');
-            
-            if (resetLink && copyBtn) {
-                // Create a temporary textarea to copy the text
-                const textarea = document.createElement('textarea');
-                textarea.value = resetLink.href;
-                document.body.appendChild(textarea);
-                textarea.select();
-                textarea.setSelectionRange(0, 99999); // For mobile devices
-                
-                try {
-                    // Copy the text
-                    const successful = document.execCommand('copy');
-                    
-                    if (successful) {
-                        // Show success feedback
-                        const originalText = copyBtn.textContent;
-                        copyBtn.textContent = '✓ Copied!';
-                        copyBtn.classList.add('copied');
-                        
-                        // Reset button after 2 seconds
-                        setTimeout(function() {
-                            copyBtn.textContent = originalText;
-                            copyBtn.classList.remove('copied');
-                        }, 2000);
-                    } else {
-                        // Fallback: select the link text for manual copying
-                        const range = document.createRange();
-                        range.selectNode(resetLink);
-                        window.getSelection().removeAllRanges();
-                        window.getSelection().addRange(range);
-                        
-                        copyBtn.textContent = 'Select & Copy';
-                    }
-                } catch (err) {
-                    // Fallback for older browsers
-                    const range = document.createRange();
-                    range.selectNode(resetLink);
-                    window.getSelection().removeAllRanges();
-                    window.getSelection().addRange(range);
-                    
-                    copyBtn.textContent = 'Select & Copy';
-                }
-                
-                // Remove the temporary textarea
-                document.body.removeChild(textarea);
-            }
-        }
     </script>
 </body>
 </html>
