@@ -348,3 +348,4 @@ function logSetupActivity($user_id, $action, $details = '') {
     }
 }
 ?>
+

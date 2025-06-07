@@ -154,7 +154,7 @@ function safeGet($array, $key, $default = '') {
           <h1><?php echo getGreeting(); ?>, <?php echo htmlspecialchars($user_name); ?>!</h1>
           <div class="user-name">
             <?php if ($has_google_config): ?>
-              <span style="color: #28a745; margin-right: 10px;">✅ Google Calendar Connected</span>
+              <!-- <span style="color: #28a745; margin-right: 10px;">✅ Google Calendar Connected</span> -->
             <?php endif; ?>
             <?php echo htmlspecialchars($user_name); ?> > 
             <a href="logout.php" style="color: #666; text-decoration: none;" 
@@ -276,34 +276,7 @@ function safeGet($array, $key, $default = '') {
         </div>
       </div>
         <!-- Setup Status Widget (for users who completed setup) -->
-      <?php if ($has_google_config): ?>
-      <div style="background: white; border-radius: 15px; padding: 20px; margin-top: 20px;">
-        <h4 style="margin: 0 0 15px 0; color: #333; font-size: 16px;">🔗 Integrations</h4>
-        <div style="display: flex; flex-direction: column; gap: 10px;">
-          <div style="display: flex; align-items: center; gap: 10px; padding: 10px; background: #f8f9fa; border-radius: 8px;">
-            <span style="color: #28a745; font-size: 18px;">✅</span>
-            <div>
-              <div style="font-weight: 600; color: #333; font-size: 14px;">Google Calendar</div>
-              <div style="font-size: 12px; color: #666;">Connected & Syncing</div>
-            </div>
-          </div>
-          
-          <?php if (!empty($user_config['whatsapp_token'])): ?>
-          <div style="display: flex; align-items: center; gap: 10px; padding: 10px; background: #f8f9fa; border-radius: 8px;">
-            <span style="color: #28a745; font-size: 18px;">📱</span>
-            <div>
-              <div style="font-weight: 600; color: #333; font-size: 14px;">WhatsApp</div>
-              <div style="font-size: 12px; color: #666;">Reminders Active</div>
-            </div>
-          </div>
-          <?php endif; ?>
-          
-          <button onclick="window.location.href='setup.php'" style="background: rgba(139, 115, 85, 0.1); color: #8B7355; border: 1px solid #8B7355; padding: 8px 16px; border-radius: 6px; font-size: 12px; cursor: pointer; margin-top: 10px;">
-            ⚙️ Manage Settings
-          </button>
-        </div>
-      </div>
-      <?php endif; ?>
+    
     </aside>
   </div>
 

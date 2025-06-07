@@ -1,5 +1,5 @@
 <?php
-// api/events.php - Events API endpoint for calendar
+// api/events.php - Enhanced Events API endpoint with auto-sync support
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
@@ -13,6 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 require_once '../config/database.php';
 require_once '../config/session.php';
 require_once '../config/functions.php';
+require_once '../setup_middleware.php';
 
 // Ensure user is logged in
 if (!isLoggedIn()) {
@@ -78,6 +79,35 @@ function handleGetRequest($database, $user_id) {
         // Export calendar as iCal
         exportToiCal($database, $user_id);
         
+    } elseif (isset($_GET['google_events_only'])) {
+        // Get only Google Calendar events (for sync checking)
+        $query = "SELECT id, google_event_id, start_datetime, end_datetime, title 
+                  FROM events 
+                  WHERE user_id = :user_id 
+                  AND google_event_id IS NOT NULL 
+                  AND google_event_id != ''
+                  ORDER BY start_datetime ASC";
+        
+        $events = $database->query($query, [':user_id' => $user_id]);
+        
+        echo json_encode(['success' => true, 'data' => $events ?: []]);
+        
+    } elseif (isset($_GET['sync_status'])) {
+        // Get sync status and statistics
+        $sync_stats = getSyncStatistics($user_id);
+        $google_config = getUserGoogleConfig($user_id);
+        $auto_sync_enabled = hasValidGoogleConfig($user_id);
+        
+        echo json_encode([
+            'success' => true,
+            'data' => [
+                'auto_sync_enabled' => $auto_sync_enabled,
+                'google_configured' => !empty($google_config),
+                'sync_statistics' => $sync_stats,
+                'needs_setup' => needsGoogleReSetup($user_id)
+            ]
+        ]);
+        
     } else {
         // Get events for a date range
         $start_date = $_GET['start_date'] ?? date('Y-m-01');
@@ -106,6 +136,12 @@ function handlePostRequest($database, $user_id) {
     // If no JSON input, try form data
     if (!$input) {
         $input = $_POST;
+    }
+    
+    // Handle bulk sync from Google Calendar
+    if (isset($input['action']) && $input['action'] === 'bulk_sync_google') {
+        handleBulkGoogleSync($database, $user_id, $input);
+        return;
     }
     
     // Validate required fields
@@ -139,15 +175,108 @@ function handlePostRequest($database, $user_id) {
         return;
     }
     
+    // Check for duplicate Google events
+    if (!empty($event_data['google_event_id'])) {
+        $existing_query = "SELECT id FROM events WHERE user_id = :user_id AND google_event_id = :google_event_id";
+        $existing = $database->queryRow($existing_query, [
+            ':user_id' => $user_id,
+            ':google_event_id' => $event_data['google_event_id']
+        ]);
+        
+        if ($existing) {
+            echo json_encode(['success' => false, 'message' => 'Event already exists', 'duplicate' => true]);
+            return;
+        }
+    }
+    
     // Insert event
     $event_id = $database->insert('events', $event_data);
     
     if ($event_id) {
+        // Log the sync activity if this is from Google Calendar
+        if (!empty($event_data['google_event_id'])) {
+            logAutoSyncActivity($user_id, 'google_event_imported', 'success', "Event: " . $event_data['title']);
+        }
+        
         echo json_encode(['success' => true, 'message' => 'Event created successfully', 'id' => $event_id]);
     } else {
         http_response_code(500);
         echo json_encode(['success' => false, 'message' => 'Failed to create event']);
     }
+}
+
+function handleBulkGoogleSync($database, $user_id, $input) {
+    if (empty($input['events']) || !is_array($input['events'])) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => 'No events provided for sync']);
+        return;
+    }
+    
+    $events = $input['events'];
+    $imported_count = 0;
+    $skipped_count = 0;
+    $error_count = 0;
+    
+    foreach ($events as $google_event) {
+        try {
+            // Check if event already exists
+            $existing_query = "SELECT id FROM events WHERE user_id = :user_id AND google_event_id = :google_event_id";
+            $existing = $database->queryRow($existing_query, [
+                ':user_id' => $user_id,
+                ':google_event_id' => $google_event['id']
+            ]);
+            
+            if ($existing) {
+                $skipped_count++;
+                continue;
+            }
+            
+            // Prepare event data
+            $event_data = [
+                'user_id' => $user_id,
+                'title' => cleanInput($google_event['summary'] ?? 'No title'),
+                'description' => cleanInput($google_event['description'] ?? ''),
+                'start_datetime' => $google_event['start']['dateTime'] ?? $google_event['start']['date'] . 'T09:00:00',
+                'end_datetime' => $google_event['end']['dateTime'] ?? $google_event['end']['date'] . 'T10:00:00',
+                'location' => cleanInput($google_event['location'] ?? ''),
+                'event_type' => 'other',
+                'google_event_id' => $google_event['id'],
+                'color' => '#8B7355'
+            ];
+            
+            // Insert event
+            $event_id = $database->insert('events', $event_data);
+            
+            if ($event_id) {
+                $imported_count++;
+            } else {
+                $error_count++;
+            }
+            
+        } catch (Exception $e) {
+            error_log("Error importing Google event: " . $e->getMessage());
+            $error_count++;
+        }
+    }
+    
+    // Log bulk sync activity
+    logAutoSyncActivity(
+        $user_id, 
+        'bulk_google_sync', 
+        $error_count > 0 ? 'partial_success' : 'success',
+        "Imported: $imported_count, Skipped: $skipped_count, Errors: $error_count"
+    );
+    
+    echo json_encode([
+        'success' => true,
+        'message' => 'Bulk sync completed',
+        'stats' => [
+            'imported' => $imported_count,
+            'skipped' => $skipped_count,
+            'errors' => $error_count,
+            'total_processed' => count($events)
+        ]
+    ]);
 }
 
 function handlePutRequest($database, $user_id) {
@@ -262,6 +391,9 @@ function exportToiCal($database, $user_id) {
     echo "VERSION:2.0\r\n";
     echo "PRODID:-//EduHive//Calendar//EN\r\n";
     echo "CALSCALE:GREGORIAN\r\n";
+    echo "METHOD:PUBLISH\r\n";
+    echo "X-WR-CALNAME:EduHive Calendar\r\n";
+    echo "X-WR-TIMEZONE:Asia/Kuala_Lumpur\r\n";
     
     foreach ($events as $event) {
         $start_datetime = new DateTime($event['start_datetime']);
@@ -282,12 +414,158 @@ function exportToiCal($database, $user_id) {
         }
         
         echo "CATEGORIES:" . strtoupper($event['event_type']) . "\r\n";
+        echo "STATUS:CONFIRMED\r\n";
+        
+        if (!empty($event['google_event_id'])) {
+            echo "X-GOOGLE-EVENT-ID:" . $event['google_event_id'] . "\r\n";
+        }
+        
         echo "CREATED:" . date('Ymd\THis\Z') . "\r\n";
         echo "LAST-MODIFIED:" . date('Ymd\THis\Z') . "\r\n";
+        echo "SEQUENCE:0\r\n";
         echo "END:VEVENT\r\n";
     }
     
     echo "END:VCALENDAR\r\n";
     exit();
+}
+
+/**
+ * Enhanced event creation with auto-categorization
+ */
+function createEnhancedEvent($database, $user_id, $event_data) {
+    // Auto-categorize events based on title/description
+    if (!isset($event_data['event_type']) || $event_data['event_type'] === 'other') {
+        $event_data['event_type'] = categorizeEvent($event_data['title'], $event_data['description'] ?? '');
+    }
+    
+    // Auto-assign course if possible
+    if (empty($event_data['course_id'])) {
+        $event_data['course_id'] = findMatchingCourse($database, $user_id, $event_data['title']);
+    }
+    
+    return $database->insert('events', $event_data);
+}
+
+/**
+ * Auto-categorize events based on content
+ */
+function categorizeEvent($title, $description) {
+    $title_lower = strtolower($title);
+    $desc_lower = strtolower($description);
+    $content = $title_lower . ' ' . $desc_lower;
+    
+    // Exam keywords
+    if (preg_match('/\b(exam|test|quiz|midterm|final|assessment)\b/', $content)) {
+        return 'exam';
+    }
+    
+    // Assignment keywords
+    if (preg_match('/\b(assignment|homework|project|report|submission|due)\b/', $content)) {
+        return 'assignment';
+    }
+    
+    // Class keywords
+    if (preg_match('/\b(lecture|class|tutorial|lab|seminar|workshop)\b/', $content)) {
+        return 'class';
+    }
+    
+    // Meeting keywords
+    if (preg_match('/\b(meeting|discussion|consultation|review|presentation)\b/', $content)) {
+        return 'meeting';
+    }
+    
+    return 'other';
+}
+
+/**
+ * Find matching course based on event title
+ */
+function findMatchingCourse($database, $user_id, $title) {
+    try {
+        $query = "SELECT id FROM courses 
+                  WHERE user_id = :user_id 
+                  AND (LOWER(:title) LIKE CONCAT('%', LOWER(code), '%') 
+                       OR LOWER(:title) LIKE CONCAT('%', LOWER(name), '%'))
+                  LIMIT 1";
+        
+        $result = $database->queryRow($query, [
+            ':user_id' => $user_id,
+            ':title' => $title
+        ]);
+        
+        return $result ? $result['id'] : null;
+        
+    } catch (Exception $e) {
+        return null;
+    }
+}
+
+/**
+ * Clean up duplicate Google Calendar events
+ */
+function cleanupDuplicateGoogleEvents($database, $user_id) {
+    try {
+        // Find duplicate Google events (same google_event_id)
+        $query = "SELECT google_event_id, COUNT(*) as count 
+                  FROM events 
+                  WHERE user_id = :user_id 
+                  AND google_event_id IS NOT NULL 
+                  AND google_event_id != ''
+                  GROUP BY google_event_id 
+                  HAVING count > 1";
+        
+        $duplicates = $database->query($query, [':user_id' => $user_id]);
+        
+        foreach ($duplicates as $duplicate) {
+            // Keep the first one, delete the rest
+            $delete_query = "DELETE FROM events 
+                            WHERE user_id = :user_id 
+                            AND google_event_id = :google_event_id 
+                            AND id NOT IN (
+                                SELECT * FROM (
+                                    SELECT MIN(id) 
+                                    FROM events 
+                                    WHERE user_id = :user_id 
+                                    AND google_event_id = :google_event_id
+                                ) as keep_id
+                            )";
+            
+            $database->query($delete_query, [
+                ':user_id' => $user_id,
+                ':google_event_id' => $duplicate['google_event_id']
+            ]);
+        }
+        
+        return true;
+        
+    } catch (Exception $e) {
+        error_log("Error cleaning up duplicate events: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Get calendar statistics
+ */
+function getCalendarStats($database, $user_id) {
+    try {
+        $stats_query = "SELECT 
+            COUNT(*) as total_events,
+            SUM(CASE WHEN google_event_id IS NOT NULL THEN 1 ELSE 0 END) as google_events,
+            SUM(CASE WHEN event_type = 'class' THEN 1 ELSE 0 END) as class_events,
+            SUM(CASE WHEN event_type = 'exam' THEN 1 ELSE 0 END) as exam_events,
+            SUM(CASE WHEN event_type = 'assignment' THEN 1 ELSE 0 END) as assignment_events,
+            COUNT(DISTINCT DATE(start_datetime)) as active_days
+            FROM events 
+            WHERE user_id = :user_id 
+            AND start_datetime >= DATE_SUB(NOW(), INTERVAL 30 DAY)";
+        
+        return $database->queryRow($stats_query, [':user_id' => $user_id]);
+        
+    } catch (Exception $e) {
+        error_log("Error getting calendar stats: " . $e->getMessage());
+        return null;
+    }
 }
 ?>
