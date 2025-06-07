@@ -101,7 +101,6 @@ function safeGet($array, $key, $default = '') {
     return isset($array[$key]) ? $array[$key] : $default;
 }
 ?>
-?>
 <!DOCTYPE html>
 <html lang="en">
 <head>

@@ -95,23 +95,27 @@ function getUserSetupConfig($user_id) {
  * @param Database $database Database instance
  */
 function createSetupTable($database) {
-    $create_table = "CREATE TABLE IF NOT EXISTS user_settings (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        user_id INT NOT NULL,
-        google_client_id VARCHAR(255),
-        google_api_key VARCHAR(255),
-        whatsapp_token VARCHAR(255),
-        timezone VARCHAR(100) DEFAULT 'Asia/Kuala_Lumpur',
-        auto_sync BOOLEAN DEFAULT TRUE,
-        setup_completed BOOLEAN DEFAULT FALSE,
-        setup_completed_at TIMESTAMP NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        UNIQUE KEY unique_user (user_id),
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )";
-    
-    $database->getConnection()->exec($create_table);
+    try {
+        $create_table = "CREATE TABLE IF NOT EXISTS user_settings (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            google_client_id TEXT,
+            google_api_key TEXT,
+            whatsapp_token VARCHAR(255),
+            timezone VARCHAR(100) DEFAULT 'Asia/Kuala_Lumpur',
+            auto_sync BOOLEAN DEFAULT TRUE,
+            setup_completed BOOLEAN DEFAULT FALSE,
+            setup_completed_at TIMESTAMP NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY unique_user (user_id)
+        )";
+        
+        $database->getConnection()->exec($create_table);
+    } catch (Exception $e) {
+        error_log("Error creating user_settings table: " . $e->getMessage());
+        // Don't throw exception here to avoid breaking the app
+    }
 }
 
 /**
@@ -269,64 +273,6 @@ function updateGoogleConfig($user_id, $google_config) {
 }
 
 /**
- * Create default courses and categories for new user
- * 
- * @param int $user_id User ID
- * @return bool Success status
- */
-function createDefaultSetup($user_id) {
-    $database = new Database();
-    
-    try {
-        // Create default courses
-        $default_courses = [
-            [
-                'name' => 'Final Year Project',
-                'code' => 'FYP',
-                'description' => 'Final year project work and documentation',
-                'color' => '#8B7355'
-            ],
-            [
-                'name' => 'Programming',
-                'code' => 'PROG',
-                'description' => 'Programming assignments and projects',
-                'color' => '#6c757d'
-            ],
-            [
-                'name' => 'General Studies',
-                'code' => 'GEN',
-                'description' => 'General academic tasks and assignments',
-                'color' => '#fd7e14'
-            ]
-        ];
-        
-        foreach ($default_courses as $course) {
-            $course['user_id'] = $user_id;
-            $database->insert('courses', $course);
-        }
-        
-        // Create welcome task
-        $welcome_task = [
-            'user_id' => $user_id,
-            'title' => 'Welcome to EduHive! 🎉',
-            'description' => 'Complete this task to get familiar with the task management system. You can edit, delete, or mark this as complete.',
-            'status' => 'todo',
-            'priority' => 'medium',
-            'due_date' => date('Y-m-d', strtotime('+3 days')),
-            'created_at' => date('Y-m-d H:i:s')
-        ];
-        
-        $database->insert('tasks', $welcome_task);
-        
-        return true;
-        
-    } catch (Exception $e) {
-        error_log("Error creating default setup: " . $e->getMessage());
-        return false;
-    }
-}
-
-/**
  * Get setup progress percentage
  * 
  * @param int $user_id User ID
@@ -382,8 +328,7 @@ function logSetupActivity($user_id, $action, $details = '') {
             details TEXT,
             ip_address VARCHAR(45),
             user_agent TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )";
         
         $database->getConnection()->exec($create_logs_table);
