@@ -70,6 +70,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $priority = 'medium';
         }
 
+        // Handle file upload
+        $uploaded_files = [];
+        if (!empty($_FILES['task_files']['name'][0])) {
+            $uploaded_files = handleFileUpload($_FILES['task_files'], $user_id);
+        }
+
         // Prepare task data
         $task_data = [
             'user_id' => $user_id,
@@ -88,6 +94,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $task_id = createEnhancedTask($user_id, $task_data);
         
         if ($task_id) {
+            // Save uploaded files to database
+            if (!empty($uploaded_files)) {
+                foreach ($uploaded_files as $file_info) {
+                    saveTaskFile($task_id, $user_id, $file_info);
+                }
+            }
+
             // Create reminder if specified
             if ($reminder_time && $reminder_type) {
                 $reminder_data = [
@@ -110,7 +123,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             
             // Redirect with success message
-            setMessage('Task created successfully!' . ($reminder_time && $reminder_type ? ' Reminder set.' : ''), 'success');
+            $file_message = !empty($uploaded_files) ? ' Files uploaded successfully.' : '';
+            setMessage('Task created successfully!' . ($reminder_time && $reminder_type ? ' Reminder set.' : '') . $file_message, 'success');
             
             // Redirect based on source
             if (!empty($_POST['course_id'])) {
@@ -131,6 +145,150 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // Get message from session if redirected
 $message = getMessage();
+
+/**
+ * Handle file upload with security and validation
+ */
+function handleFileUpload($files, $user_id) {
+    $upload_dir = 'uploads/tasks/';
+    $user_upload_dir = $upload_dir . $user_id . '/';
+    
+    // Create directory if it doesn't exist
+    if (!is_dir($user_upload_dir)) {
+        if (!mkdir($user_upload_dir, 0755, true)) {
+            throw new Exception("Failed to create upload directory");
+        }
+    }
+    
+    $uploaded_files = [];
+    $allowed_extensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
+    $allowed_mime_types = [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-powerpoint',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+    ];
+    $max_file_size = 10 * 1024 * 1024; // 10MB
+    
+    // Handle multiple files
+    $file_count = count($files['name']);
+    
+    for ($i = 0; $i < $file_count; $i++) {
+        if ($files['error'][$i] === UPLOAD_ERR_NO_FILE) {
+            continue; // Skip empty file slots
+        }
+        
+        if ($files['error'][$i] !== UPLOAD_ERR_OK) {
+            throw new Exception("File upload error: " . getUploadErrorMessage($files['error'][$i]));
+        }
+        
+        $original_name = $files['name'][$i];
+        $file_size = $files['size'][$i];
+        $file_type = $files['type'][$i];
+        $tmp_name = $files['tmp_name'][$i];
+        
+        // Validate file size
+        if ($file_size > $max_file_size) {
+            throw new Exception("File '{$original_name}' is too large. Maximum size is 10MB.");
+        }
+        
+        // Validate file extension
+        $file_extension = strtolower(pathinfo($original_name, PATHINFO_EXTENSION));
+        if (!in_array($file_extension, $allowed_extensions)) {
+            throw new Exception("File '{$original_name}' has an invalid extension. Allowed: " . implode(', ', $allowed_extensions));
+        }
+        
+        // Validate MIME type
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $detected_mime = finfo_file($finfo, $tmp_name);
+        finfo_close($finfo);
+        
+        if (!in_array($detected_mime, $allowed_mime_types)) {
+            throw new Exception("File '{$original_name}' has an invalid file type.");
+        }
+        
+        // Generate unique filename
+        $unique_name = uniqid() . '_' . time() . '.' . $file_extension;
+        $destination = $user_upload_dir . $unique_name;
+        
+        // Move uploaded file
+        if (!move_uploaded_file($tmp_name, $destination)) {
+            throw new Exception("Failed to upload file '{$original_name}'");
+        }
+        
+        $uploaded_files[] = [
+            'original_name' => $original_name,
+            'stored_name' => $unique_name,
+            'file_path' => $destination,
+            'file_size' => $file_size,
+            'file_type' => $detected_mime,
+            'file_extension' => $file_extension
+        ];
+    }
+    
+    return $uploaded_files;
+}
+
+/**
+ * Save task file information to database
+ */
+function saveTaskFile($task_id, $user_id, $file_info) {
+    $database = new Database();
+    
+    // Create task_files table if it doesn't exist
+    $create_table = "CREATE TABLE IF NOT EXISTS task_files (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        task_id INT NOT NULL,
+        user_id INT NOT NULL,
+        original_name VARCHAR(255) NOT NULL,
+        stored_name VARCHAR(255) NOT NULL,
+        file_path VARCHAR(500) NOT NULL,
+        file_size INT NOT NULL,
+        file_type VARCHAR(100) NOT NULL,
+        file_extension VARCHAR(10) NOT NULL,
+        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )";
+    $database->getConnection()->exec($create_table);
+    
+    $file_data = [
+        'task_id' => $task_id,
+        'user_id' => $user_id,
+        'original_name' => $file_info['original_name'],
+        'stored_name' => $file_info['stored_name'],
+        'file_path' => $file_info['file_path'],
+        'file_size' => $file_info['file_size'],
+        'file_type' => $file_info['file_type'],
+        'file_extension' => $file_info['file_extension']
+    ];
+    
+    return $database->insert('task_files', $file_data);
+}
+
+/**
+ * Get upload error message
+ */
+function getUploadErrorMessage($error_code) {
+    switch ($error_code) {
+        case UPLOAD_ERR_INI_SIZE:
+        case UPLOAD_ERR_FORM_SIZE:
+            return "File is too large";
+        case UPLOAD_ERR_PARTIAL:
+            return "File was only partially uploaded";
+        case UPLOAD_ERR_NO_TMP_DIR:
+            return "Missing temporary folder";
+        case UPLOAD_ERR_CANT_WRITE:
+            return "Failed to write file to disk";
+        case UPLOAD_ERR_EXTENSION:
+            return "File upload stopped by extension";
+        default:
+            return "Unknown upload error";
+    }
+}
 
 /**
  * Create task reminder
@@ -459,6 +617,208 @@ function generateReminderMessage($reminder_data) {
       color: white;
     }
 
+    /* File Upload Section */
+    .file-upload-section {
+      background: linear-gradient(135deg, #e8f5e8 0%, #d4edda 100%);
+      border: 2px solid #c3e6cb;
+      border-radius: 16px;
+      padding: 30px;
+      margin: 40px 0;
+      position: relative;
+    }
+
+    .file-upload-section::before {
+      content: '📎';
+      position: absolute;
+      top: -15px;
+      left: 30px;
+      background: white;
+      padding: 8px 12px;
+      border-radius: 20px;
+      font-size: 18px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+
+    .file-upload-section h3 {
+      margin: 0 0 25px 0;
+      color: #155724;
+      font-size: 18px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      padding-left: 40px;
+    }
+
+    .file-upload-area {
+      border: 3px dashed #28a745;
+      border-radius: 16px;
+      padding: 40px 20px;
+      text-align: center;
+      background: white;
+      transition: all 0.3s ease;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .file-upload-area:hover {
+      border-color: #155724;
+      background: #f8fff8;
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(40, 167, 69, 0.2);
+    }
+
+    .file-upload-area.dragover {
+      border-color: #155724;
+      background: #e8f5e8;
+      transform: scale(1.02);
+    }
+
+    .file-upload-icon {
+      font-size: 48px;
+      color: #28a745;
+      margin-bottom: 20px;
+      display: block;
+    }
+
+    .file-upload-text {
+      font-size: 18px;
+      font-weight: 600;
+      color: #155724;
+      margin-bottom: 10px;
+    }
+
+    .file-upload-hint {
+      font-size: 14px;
+      color: #6c757d;
+      margin-bottom: 20px;
+    }
+
+    .file-upload-formats {
+      display: flex;
+      justify-content: center;
+      gap: 15px;
+      flex-wrap: wrap;
+    }
+
+    .format-tag {
+      padding: 6px 12px;
+      background: #28a745;
+      color: white;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .file-input-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    /* Selected Files Display */
+    .selected-files {
+      margin-top: 25px;
+      display: none;
+    }
+
+    .selected-files.show {
+      display: block;
+    }
+
+    .selected-files h4 {
+      margin: 0 0 15px 0;
+      color: #155724;
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .file-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .file-item {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      padding: 15px;
+      background: white;
+      border: 2px solid #c3e6cb;
+      border-radius: 12px;
+      transition: all 0.3s ease;
+    }
+
+    .file-item:hover {
+      border-color: #28a745;
+      box-shadow: 0 4px 15px rgba(40, 167, 69, 0.2);
+    }
+
+    .file-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      color: white;
+      font-weight: 600;
+    }
+
+    .file-icon.pdf { background: #dc3545; }
+    .file-icon.doc { background: #2b579a; }
+    .file-icon.docx { background: #2b579a; }
+    .file-icon.xls { background: #217346; }
+    .file-icon.xlsx { background: #217346; }
+    .file-icon.ppt { background: #d24726; }
+    .file-icon.pptx { background: #d24726; }
+
+    .file-details {
+      flex: 1;
+    }
+
+    .file-name {
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 4px;
+      word-break: break-word;
+    }
+
+    .file-size {
+      font-size: 13px;
+      color: #6c757d;
+    }
+
+    .file-remove {
+      background: #dc3545;
+      color: white;
+      border: none;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.3s ease;
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .file-remove:hover {
+      background: #c82333;
+      transform: scale(1.1);
+    }
+
     /* Enhanced Reminder Section */
     .reminder-section {
       background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
@@ -771,6 +1131,38 @@ function generateReminderMessage($reminder_data) {
       cursor: pointer;
     }
 
+    /* File Upload Progress */
+    .upload-progress {
+      margin-top: 15px;
+      display: none;
+    }
+
+    .upload-progress.show {
+      display: block;
+    }
+
+    .progress-bar {
+      width: 100%;
+      height: 8px;
+      background: #e9ecef;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #28a745, #20c997);
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+
+    .progress-text {
+      margin-top: 8px;
+      font-size: 14px;
+      color: #666;
+      text-align: center;
+    }
+
     /* Responsive Design */
     @media (max-width: 1024px) {
       .create-task-main {
@@ -792,6 +1184,10 @@ function generateReminderMessage($reminder_data) {
       
       .reminder-type-grid {
         grid-template-columns: 1fr;
+      }
+
+      .file-upload-formats {
+        gap: 10px;
       }
     }
 
@@ -831,6 +1227,24 @@ function generateReminderMessage($reminder_data) {
       .whatsapp-number {
         border-radius: 12px;
         border: 2px solid #25D366;
+      }
+
+      .file-upload-area {
+        padding: 30px 15px;
+      }
+
+      .file-upload-icon {
+        font-size: 36px;
+      }
+
+      .file-upload-text {
+        font-size: 16px;
+      }
+
+      .file-upload-formats {
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
       }
     }
   </style>
@@ -893,8 +1307,7 @@ function generateReminderMessage($reminder_data) {
       <?php endif; ?>
       
       <div class="task-form-container">
-        <form class="task-form" method="POST">
-          <!-- Task Details Section -->
+        <form class="task-form" method="POST" enctype="multipart/form-data">
           <!-- Task Details Section -->
           <div class="form-row">
             <div class="form-group">
@@ -969,6 +1382,41 @@ function generateReminderMessage($reminder_data) {
                   <label for="priority_high">🔴 High</label>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <!-- File Upload Section -->
+          <div class="file-upload-section">
+            <h3>📎 Attach Files</h3>
+            
+            <div class="file-upload-area" id="fileUploadArea">
+              <input type="file" id="taskFiles" name="task_files[]" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx" class="file-input-hidden">
+              
+              <span class="file-upload-icon">📄</span>
+              <div class="file-upload-text">Click to browse or drag & drop files</div>
+              <div class="file-upload-hint">Maximum file size: 10MB per file</div>
+              
+              <div class="file-upload-formats">
+                <span class="format-tag">PDF</span>
+                <span class="format-tag">DOC</span>
+                <span class="format-tag">DOCX</span>
+                <span class="format-tag">XLS</span>
+                <span class="format-tag">XLSX</span>
+                <span class="format-tag">PPT</span>
+                <span class="format-tag">PPTX</span>
+              </div>
+            </div>
+
+            <div class="upload-progress" id="uploadProgress">
+              <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+              </div>
+              <div class="progress-text" id="progressText">Preparing files...</div>
+            </div>
+            
+            <div class="selected-files" id="selectedFiles">
+              <h4>📁 Selected Files</h4>
+              <div class="file-list" id="fileList"></div>
             </div>
           </div>
           
@@ -1074,12 +1522,22 @@ function generateReminderMessage($reminder_data) {
   </div>
 
   <script>
+    let selectedFiles = [];
+    
     document.addEventListener('DOMContentLoaded', function() {
+      initializeEventListeners();
+      initializeFileUpload();
+      
       // Set minimum date to today
       const dueDateInput = document.getElementById('due_date');
       const today = new Date().toISOString().split('T')[0];
       dueDateInput.min = today;
       
+      // Auto-focus title field
+      document.getElementById('title').focus();
+    });
+
+    function initializeEventListeners() {
       // Auto-update end time when start time changes
       const startTimeInput = document.getElementById('start_time');
       const endTimeInput = document.getElementById('end_time');
@@ -1111,7 +1569,6 @@ function generateReminderMessage($reminder_data) {
             emailInput.classList.add('show');
           }
           
-          // Show reminder preview
           showReminderPreview();
         });
       });
@@ -1126,12 +1583,10 @@ function generateReminderMessage($reminder_data) {
       const whatsappNumberInput = document.getElementById('whatsapp_number');
       if (whatsappNumberInput) {
         whatsappNumberInput.addEventListener('input', function() {
-          // Remove non-digits and limit to 10 characters
           this.value = this.value.replace(/\D/g, '').substring(0, 10);
         });
         
         whatsappNumberInput.addEventListener('keypress', function(e) {
-          // Only allow digits
           if (!/\d/.test(e.key) && !['Backspace', 'Delete', 'Tab', 'Enter', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
             e.preventDefault();
           }
@@ -1145,28 +1600,156 @@ function generateReminderMessage($reminder_data) {
           e.preventDefault();
         }
       });
+    }
+
+    function initializeFileUpload() {
+      const fileUploadArea = document.getElementById('fileUploadArea');
+      const fileInput = document.getElementById('taskFiles');
+      const selectedFilesDiv = document.getElementById('selectedFiles');
+      const fileList = document.getElementById('fileList');
+
+      // Click to upload
+      fileUploadArea.addEventListener('click', function() {
+        fileInput.click();
+      });
+
+      // Drag and drop functionality
+      fileUploadArea.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        this.classList.add('dragover');
+      });
+
+      fileUploadArea.addEventListener('dragleave', function(e) {
+        e.preventDefault();
+        this.classList.remove('dragover');
+      });
+
+      fileUploadArea.addEventListener('drop', function(e) {
+        e.preventDefault();
+        this.classList.remove('dragover');
+        
+        const files = Array.from(e.dataTransfer.files);
+        handleFileSelection(files);
+      });
+
+      // File input change
+      fileInput.addEventListener('change', function() {
+        const files = Array.from(this.files);
+        handleFileSelection(files);
+      });
+    }
+
+    function handleFileSelection(files) {
+      const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'];
+      const maxSize = 10 * 1024 * 1024; // 10MB
       
-      // Auto-focus title field
-      document.getElementById('title').focus();
-      
-      // Course selection enhancement
-      const courseSelect = document.getElementById('course_id');
-      courseSelect.addEventListener('change', function() {
-        // Could add course-specific functionality here
-        if (this.value) {
-          showNotification('Course selected: ' + this.options[this.selectedIndex].text, 'info');
+      for (const file of files) {
+        // Validate file type
+        if (!allowedTypes.includes(file.type) && !isValidFileExtension(file.name)) {
+          showNotification(`Invalid file type: ${file.name}`, 'error');
+          continue;
         }
+        
+        // Validate file size
+        if (file.size > maxSize) {
+          showNotification(`File too large: ${file.name} (max 10MB)`, 'error');
+          continue;
+        }
+        
+        // Check for duplicates
+        if (selectedFiles.some(f => f.name === file.name && f.size === file.size)) {
+          showNotification(`File already selected: ${file.name}`, 'warning');
+          continue;
+        }
+        
+        selectedFiles.push(file);
+      }
+      
+      updateFileList();
+      updateFileInput();
+    }
+
+    function isValidFileExtension(filename) {
+      const validExtensions = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'];
+      const extension = filename.toLowerCase().substring(filename.lastIndexOf('.'));
+      return validExtensions.includes(extension);
+    }
+
+    function updateFileList() {
+      const selectedFilesDiv = document.getElementById('selectedFiles');
+      const fileList = document.getElementById('fileList');
+      
+      if (selectedFiles.length === 0) {
+        selectedFilesDiv.classList.remove('show');
+        return;
+      }
+      
+      selectedFilesDiv.classList.add('show');
+      
+      fileList.innerHTML = selectedFiles.map((file, index) => {
+        const extension = file.name.substring(file.name.lastIndexOf('.') + 1).toLowerCase();
+        const size = formatFileSize(file.size);
+        
+        return `
+          <div class="file-item">
+            <div class="file-icon ${extension}">
+              ${getFileIcon(extension)}
+            </div>
+            <div class="file-details">
+              <div class="file-name">${file.name}</div>
+              <div class="file-size">${size}</div>
+            </div>
+            <button type="button" class="file-remove" onclick="removeFile(${index})" title="Remove file">
+              ×
+            </button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function updateFileInput() {
+      const fileInput = document.getElementById('taskFiles');
+      const dataTransfer = new DataTransfer();
+      
+      selectedFiles.forEach(file => {
+        dataTransfer.items.add(file);
       });
       
-      // Priority selection enhancement
-      const priorityInputs = document.querySelectorAll('input[name="priority"]');
-      priorityInputs.forEach(input => {
-        input.addEventListener('change', function() {
-          const priorityText = this.nextElementSibling.textContent.trim();
-          showNotification('Priority set to: ' + priorityText, 'info');
-        });
-      });
-    });
+      fileInput.files = dataTransfer.files;
+    }
+
+    function removeFile(index) {
+      selectedFiles.splice(index, 1);
+      updateFileList();
+      updateFileInput();
+      
+      if (selectedFiles.length === 0) {
+        showNotification('All files removed', 'info');
+      }
+    }
+
+    function getFileIcon(extension) {
+      const icons = {
+        'pdf': 'PDF',
+        'doc': 'DOC',
+        'docx': 'DOC',
+        'xls': 'XLS',
+        'xlsx': 'XLS',
+        'ppt': 'PPT',
+        'pptx': 'PPT'
+      };
+      return icons[extension] || '📄';
+    }
+
+    function formatFileSize(bytes) {
+      if (bytes === 0) return '0 Bytes';
+      
+      const k = 1024;
+      const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
     
     function validateForm() {
       const title = document.getElementById('title').value.trim();
@@ -1227,6 +1810,20 @@ function generateReminderMessage($reminder_data) {
           return false;
         }
       }
+
+      // Validate file uploads
+      if (selectedFiles.length > 10) {
+        showNotification('Maximum 10 files allowed', 'error');
+        return false;
+      }
+
+      const totalSize = selectedFiles.reduce((total, file) => total + file.size, 0);
+      const maxTotalSize = 50 * 1024 * 1024; // 50MB total
+      
+      if (totalSize > maxTotalSize) {
+        showNotification('Total file size cannot exceed 50MB', 'error');
+        return false;
+      }
       
       return true;
     }
@@ -1262,8 +1859,9 @@ function generateReminderMessage($reminder_data) {
         z-index: 1000;
         opacity: 0;
         transition: all 0.3s ease;
-        max-width: 300px;
+        max-width: 350px;
         box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+        word-wrap: break-word;
       `;
       
       if (type === 'success') {
@@ -1272,7 +1870,7 @@ function generateReminderMessage($reminder_data) {
         notification.style.background = 'linear-gradient(45deg, #dc3545, #c82333)';
       } else if (type === 'info') {
         notification.style.background = 'linear-gradient(45deg, #17a2b8, #138496)';
-      } else {
+      } else if (type === 'warning') {
         notification.style.background = 'linear-gradient(45deg, #ffc107, #e0a800)';
         notification.style.color = '#333';
       }
@@ -1292,8 +1890,149 @@ function generateReminderMessage($reminder_data) {
             document.body.removeChild(notification);
           }
         }, 300);
-      }, 3000);
+      }, 4000);
     }
+
+    // File upload progress simulation (for better UX)
+    function simulateUploadProgress() {
+      const progressDiv = document.getElementById('uploadProgress');
+      const progressFill = document.getElementById('progressFill');
+      const progressText = document.getElementById('progressText');
+      
+      if (selectedFiles.length === 0) return;
+      
+      progressDiv.classList.add('show');
+      let progress = 0;
+      
+      const interval = setInterval(() => {
+        progress += Math.random() * 15;
+        if (progress >= 100) {
+          progress = 100;
+          clearInterval(interval);
+          progressText.textContent = 'Files ready for upload!';
+          setTimeout(() => {
+            progressDiv.classList.remove('show');
+          }, 2000);
+        } else {
+          progressText.textContent = `Processing files... ${Math.round(progress)}%`;
+        }
+        
+        progressFill.style.width = progress + '%';
+      }, 200);
+    }
+
+    // Enhanced form submission with file validation
+    document.querySelector('.task-form').addEventListener('submit', function(e) {
+      if (selectedFiles.length > 0) {
+        // Show upload progress
+        simulateUploadProgress();
+        
+        // Add a slight delay to show the progress animation
+        setTimeout(() => {
+          if (validateForm()) {
+            showNotification('Creating task with attachments...', 'info');
+          }
+        }, 500);
+      }
+    });
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', function(e) {
+      // Ctrl/Cmd + Enter to submit form
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        if (validateForm()) {
+          document.querySelector('.task-form').submit();
+        }
+      }
+      
+      // Escape to cancel
+      if (e.key === 'Escape') {
+        if (confirm('Are you sure you want to cancel? Any unsaved changes will be lost.')) {
+          window.location.href = 'task.php';
+        }
+      }
+    });
+
+    // Auto-save draft functionality (simple localStorage implementation)
+    function saveDraft() {
+      const formData = {
+        title: document.getElementById('title').value,
+        description: document.getElementById('description').value,
+        due_date: document.getElementById('due_date').value,
+        start_time: document.getElementById('start_time').value,
+        end_time: document.getElementById('end_time').value,
+        course_id: document.getElementById('course_id').value,
+        priority: document.querySelector('input[name="priority"]:checked')?.value || 'medium',
+        timestamp: Date.now()
+      };
+      
+      localStorage.setItem('eduhive_task_draft', JSON.stringify(formData));
+    }
+
+    function loadDraft() {
+      const draft = localStorage.getItem('eduhive_task_draft');
+      if (!draft) return;
+      
+      try {
+        const formData = JSON.parse(draft);
+        const now = Date.now();
+        const oneHour = 60 * 60 * 1000;
+        
+        // Only load draft if it's less than 1 hour old
+        if (now - formData.timestamp < oneHour) {
+          if (confirm('Found a recent draft. Would you like to restore it?')) {
+            document.getElementById('title').value = formData.title || '';
+            document.getElementById('description').value = formData.description || '';
+            document.getElementById('due_date').value = formData.due_date || '';
+            document.getElementById('start_time').value = formData.start_time || '';
+            document.getElementById('end_time').value = formData.end_time || '';
+            document.getElementById('course_id').value = formData.course_id || '';
+            
+            const priorityInput = document.querySelector(`input[name="priority"][value="${formData.priority}"]`);
+            if (priorityInput) {
+              priorityInput.checked = true;
+            }
+            
+            showNotification('Draft restored successfully!', 'success');
+          }
+        }
+      } catch (e) {
+        console.error('Error loading draft:', e);
+      }
+    }
+
+    // Auto-save every 30 seconds
+    setInterval(saveDraft, 30000);
+
+    // Load draft on page load
+    setTimeout(loadDraft, 1000);
+
+    // Clear draft on successful submission
+    document.querySelector('.task-form').addEventListener('submit', function() {
+      localStorage.removeItem('eduhive_task_draft');
+    });
+
+    // Warn user about unsaved changes
+    let hasUnsavedChanges = false;
+    
+    document.querySelectorAll('input, textarea, select').forEach(element => {
+      element.addEventListener('input', () => {
+        hasUnsavedChanges = true;
+      });
+    });
+
+    window.addEventListener('beforeunload', function(e) {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    });
+
+    // Mark changes as saved when form is submitted
+    document.querySelector('.task-form').addEventListener('submit', function() {
+      hasUnsavedChanges = false;
+    });
   </script>
 </body>
 </html>
